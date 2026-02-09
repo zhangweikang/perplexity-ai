@@ -1,8 +1,8 @@
 """
-Utility functions for Perplexity AI library.
+Utility functions for Perplexity AI library. / Perplexity AI 库的工具函数。
 
-This module provides helper functions for retry logic, validation,
-and other common operations.
+This module provides helper functions for retry logic, validation, / 该模块提供了重试逻辑、验证
+and other common operations. / 以及其他常见操作的辅助函数。
 """
 
 import time
@@ -32,16 +32,16 @@ def retry_with_backoff(
     on_retry: Optional[Callable[[int, Exception], None]] = None,
 ) -> Callable:
     """
-    Decorator that retries a function with exponential backoff.
+    Decorator that retries a function with exponential backoff. / 使用指数回退重试函数的装饰器。
 
     Args:
-        max_attempts: Maximum number of retry attempts
-        backoff_factor: Multiplier for wait time between retries
-        exceptions: Tuple of exception types to catch
-        on_retry: Optional callback function called on each retry
+        max_attempts: Maximum number of retry attempts / 最大重试次数
+        backoff_factor: Multiplier for wait time between retries / 重试间等待时间的乘数
+        exceptions: Tuple of exception types to catch / 要捕获的异常类型元组
+        on_retry: Optional callback function called on each retry / 每次重试时调用的可选回调函数
 
     Returns:
-        Decorated function with retry logic
+        Decorated function with retry logic / 带有重试逻辑的装饰函数
 
     Example:
         >>> @retry_with_backoff(max_attempts=3)
@@ -85,14 +85,14 @@ def rate_limit(
     max_delay: float = RATE_LIMIT_MAX_DELAY,
 ) -> Callable:
     """
-    Decorator that rate limits function calls with random delay.
+    Decorator that rate limits function calls with random delay. / 使用随机延迟限制函数调用速率的装饰器。
 
     Args:
-        min_delay: Minimum delay in seconds
-        max_delay: Maximum delay in seconds
+        min_delay: Minimum delay in seconds / 最小延迟（秒）
+        max_delay: Maximum delay in seconds / 最大延迟（秒）
 
     Returns:
-        Decorated function with rate limiting
+        Decorated function with rate limiting / 带有速率限制的装饰函数
 
     Example:
         >>> @rate_limit(min_delay=1.0, max_delay=3.0)
@@ -101,7 +101,7 @@ def rate_limit(
     """
 
     def decorator(func: Callable) -> Callable:
-        last_call = [0.0]  # Mutable container to store across calls
+        last_call = [0.0]  # Mutable container to store across calls / 用于跨调用存储的可变容器
 
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -125,25 +125,25 @@ def validate_search_params(
     mode: str, model: Optional[str], sources: list, own_account: bool = False
 ) -> None:
     """
-    Validate search parameters.
+    Validate search parameters. / 验证搜索参数。
 
     Args:
-        mode: Search mode
-        model: Model name (optional)
-        sources: List of sources
-        own_account: Whether using own account
+        mode: Search mode / 搜索模式
+        model: Model name (optional) / 模型名称（可选）
+        sources: List of sources / 来源列表
+        own_account: Whether using own account / 是否使用自己的账号
 
     Raises:
-        ValidationError: If parameters are invalid
+        ValidationError: If parameters are invalid / 如果参数无效则引发 ValidationError
 
     Example:
         >>> validate_search_params("pro", "gpt-4.5", ["web"], True)
     """
-    # Validate mode
+    # Validate mode / 验证模式
     if mode not in SEARCH_MODES:
         raise ValidationError(f"Invalid mode '{mode}'. Must be one of: {', '.join(SEARCH_MODES)}")
 
-    # Validate model
+    # Validate model / 验证模型
     if model is not None:
         valid_models = list(MODEL_MAPPINGS.get(mode, {}).keys())
         if model not in valid_models:
@@ -152,14 +152,14 @@ def validate_search_params(
                 f"Valid models: {', '.join(str(m) for m in valid_models)}"
             )
 
-    # Check if model requires own account
+    # Check if model requires own account / 检查模型是否需要自己的账号
     if model is not None and not own_account:
         raise ValidationError(
             "Model selection requires an account with cookies. "
             "Initialize Client with cookies parameter."
         )
 
-    # Validate sources
+    # Validate sources / 验证来源
     invalid_sources = [s for s in sources if s not in SEARCH_SOURCES]
     if invalid_sources:
         raise ValidationError(
@@ -178,28 +178,28 @@ def validate_query_limits(
     files_count: int,
 ) -> None:
     """
-    Validate query and file upload limits.
+    Validate query and file upload limits. / 验证查询和文件上传限制。
 
     Args:
-        copilot_remaining: Remaining copilot queries
-        file_upload_remaining: Remaining file uploads
-        mode: Search mode
-        files_count: Number of files to upload
+        copilot_remaining: Remaining copilot queries / 剩余的 copilot 查询次数
+        file_upload_remaining: Remaining file uploads / 剩余的文件上传次数
+        mode: Search mode / 搜索模式
+        files_count: Number of files to upload / 要上传的文件数量
 
     Raises:
-        ValidationError: If limits are exceeded
+        ValidationError: If limits are exceeded / 如果超过限制则引发 ValidationError
 
     Example:
         >>> validate_query_limits(5, 10, "pro", 2)
     """
-    # Check copilot queries
+    # Check copilot queries / 检查 copilot 查询
     if mode in ["pro", "reasoning", "deep research"] and copilot_remaining <= 0:
         raise ValidationError(
             f"No remaining enhanced queries for mode '{mode}'. "
             f"Create a new account or use mode='auto'."
         )
 
-    # Check file uploads
+    # Check file uploads / 检查文件上传
     if files_count > 0 and file_upload_remaining < files_count:
         raise ValidationError(
             f"Insufficient file uploads. Requested: {files_count}, "
@@ -209,13 +209,13 @@ def validate_query_limits(
 
 def validate_file_data(files: dict) -> None:
     """
-    Validate file data dictionary.
+    Validate file data dictionary. / 验证文件数据字典。
 
     Args:
-        files: Dictionary with filenames as keys and file data as values
+        files: Dictionary with filenames as keys and file data as values / 以文件名作为键，文件数据作为值的字典
 
     Raises:
-        ValidationError: If file data is invalid
+        ValidationError: If file data is invalid / 如果文件数据无效则引发 ValidationError
 
     Example:
         >>> validate_file_data({"doc.pdf": b"..."})
@@ -236,16 +236,16 @@ def validate_file_data(files: dict) -> None:
 
 def sanitize_query(query: str) -> str:
     """
-    Sanitize and validate query string.
+    Sanitize and validate query string. / 清理并验证查询字符串。
 
     Args:
-        query: Query string
+        query: Query string / 查询字符串
 
     Returns:
-        Sanitized query string
+        Sanitized query string / 清理后的查询字符串
 
     Raises:
-        ValidationError: If query is invalid
+        ValidationError: If query is invalid / 如果查询无效则引发 ValidationError
 
     Example:
         >>> sanitize_query("  What is AI?  ")
@@ -267,16 +267,16 @@ def sanitize_query(query: str) -> str:
 
 def parse_nested_json_response(content_json: dict) -> dict:
     """
-    Parse nested JSON response from Perplexity API.
+    Parse nested JSON response from Perplexity API. / 解析来自 Perplexity API 的嵌套 JSON 响应。
 
-    Extracts answer and chunks from the nested 'text' field structure:
-    text (JSON string) -> list of steps -> FINAL step -> answer (JSON string)
+    Extracts answer and chunks from the nested 'text' field structure: / 从嵌套的 'text' 字段结构中提取答案和块：
+    text (JSON string) -> list of steps -> FINAL step -> answer (JSON string) / text (JSON 字符串) -> 步骤列表 -> FINAL 步骤 -> answer (JSON 字符串)
 
     Args:
-        content_json: Response JSON from API
+        content_json: Response JSON from API / 来自 API 的响应 JSON
 
     Returns:
-        Enriched response with extracted answer and chunks
+        Enriched response with extracted answer and chunks / 包含提取的答案和块的增强响应
 
     Example:
         >>> response = parse_nested_json_response(api_response)

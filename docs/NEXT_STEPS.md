@@ -1,144 +1,120 @@
-    Search with Perplexity AI.
-    
-    Args:
-        query: Search query text
-        mode: Search mode ('auto', 'pro', 'reasoning', 'deep research')
-        model: Specific model to use (depends on mode)
-        sources: List of sources (['web', 'scholar', 'social'])
-        files: Files to upload {filename: content}
-        stream: Enable streaming responses
-        language: ISO 639 language code
-        follow_up: Previous query for context
-        incognito: Enable incognito mode
-        
-    Returns:
-        Response dictionary with 'answer' key, or generator if stream=True
-        
-    Raises:
-        # Next Steps Guide
+# 下一步行动指南 (Next Steps Guide)
 
-        This guide outlines the steps remaining to refactor the legacy modules so they align with the new infrastructure (configuration, logging, exceptions, and utilities).
+本指南概述了重构旧版模块所需的剩余步骤，使其与新的基础架构（配置、日志、异常和工具类）保持一致。
 
-        ## Objectives
+## 核心目标 (Objectives)
 
-        1. Integrate the new infrastructure modules (`config`, `logger`, `exceptions`, `utils`).
-    # Next Steps Guide
+1. 在所有地方复用共享的基础架构（不再使用硬编码常量或 print 语句）。
+2. 为每个公共函数添加完善的类型提示和 Google 风格的文档字符串。
+3. 使用 `perplexity.exceptions` 中的类型化异常体系替换通用的 `Exception` 处理。
+4. 为拥有网络资源的客户端提供确定性的清理机制（通过上下文管理器）。
+5. 在重构完成后，扩展自动化测试以涵盖客户端行为。
 
-    This guide captures the remaining refactor work required to bring the legacy clients (sync and async) in line with the new infrastructure modules (`config`, `logger`, `exceptions`, and `utils`).
+## 第一阶段 – 同步客户端 (Phase 1 – Synchronous Client)
 
-    ## Objectives
+### 1.1 更新 `perplexity/client.py`
 
-    1. Reuse the shared infrastructure everywhere (no hardcoded constants or print statements).
-    2. Add complete type hints and Google-style docstrings to every public function.
-    3. Replace generic `Exception` handling with the typed hierarchy from `perplexity.exceptions`.
-    4. Provide deterministic cleanup via context managers for clients that own network resources.
-    5. Extend automated tests to cover client behaviors once the refactor is complete.
+- 导入配置、日志、工具类和异常模块，而不是重复定义这些值。
+- 使用 `config.py` 中的条目替换每一个字面量形式的端点、头信息或限制。
+- 使用 `@retry_with_backoff` 和 `@rate_limit` 装饰对外调用。
+- 使用 `validate_search_params`、`validate_query_limits` 和 `validate_file_data` 验证查询、来源和文件上传。
+- 抛出类型化错误，如 `ValidationError`、`AuthenticationError`、`RateLimitError`、`ResponseParseError` 和 `NetworkError`。
+- 为类和方法添加完整的类型提示（包括流式生成器）。
+- 编写文档字符串，描述参数、返回值和可能抛出的异常。
+- 通过 `logger.info()` / `logger.error()` 发送结构化日志，而不是使用 `print()`。
 
-    ## Phase 1 – Synchronous Client
+### 1.2 更新 `perplexity/emailnator.py`
 
-    ### 1.1 Update `perplexity/client.py`
+- 从 `config.py` 加载 URL 模板、超时和重试值。
+- 使用结构化日志替换控制台输出。
+- 验证 cookie/token 输入，并抛出相应的异常 (`AuthenticationError`、`ValidationError` 或 `SessionExpiredError`)。
+- 为公共辅助函数（如账号创建、cookie 刷新）添加文档字符串和类型提示。
 
-    - Import configuration, logger, utilities, and exceptions instead of duplicating values.
-    - Replace every literal endpoint, header, or limit with entries from `config.py`.
-    - Wrap outbound calls with `@retry_with_backoff` and `@rate_limit`.
-    - Validate queries, sources, and file uploads using `validate_search_params`, `validate_query_limits`, and `validate_file_data`.
-    - Raise typed errors such as `ValidationError`, `AuthenticationError`, `RateLimitError`, `ResponseParseError`, and `NetworkError`.
-    - Add full type hints to the class and methods (including streaming generators).
-    - Write docstrings that describe arguments, return values, and raised exceptions.
-    - Emit structured logs via `logger.info()`/`logger.error()` instead of `print()`.
+### 1.3 更新 `perplexity/driver.py`
 
-    ### 1.2 Update `perplexity/emailnator.py`
+- 在 `config.py` 中集中管理浏览器路径、User-Agent 和等待时间。
+- 为自动化失败创建一个专用的异常（例如 `DriverError`）。
+- 通过实现上下文管理器支持，确保驱动程序能干净地关闭。
+- 记录导航步骤、屏幕截图抓取以及失败情况。
 
-    - Load URL templates, timeouts, and retry values from `config.py`.
-    - Replace console output with structured logging.
-    - Validate cookie/token input and raise the appropriate exception (`AuthenticationError`, `ValidationError`, or `SessionExpiredError`).
-    - Add docstrings and type hints for public helpers (e.g., account creation, cookie refresh).
+### 1.4 更新 `perplexity/labs.py`
 
-    ### 1.3 Update `perplexity/driver.py`
+- 对 Labs/WebSocket 客户端应用相同的改进。
+- 通过使用上下文管理器或显式的 `close()` 调用，确保 WebSocket 会话得到清理。
+- 将底层错误转化为自定义的异常体系。
 
-    - Centralize browser paths, user agents, and wait times in `config.py`.
-    - Create a dedicated exception (e.g., `DriverError`) for automation failures.
-    - Ensure the driver shuts down cleanly by implementing context manager support.
-    - Log navigation steps, screenshot captures, and failures.
+## 第二阶段 – 异步客户端 (Phase 2 – Async Client)
 
-    ### 1.4 Update `perplexity/labs.py`
+- 在 `perplexity_async/client.py`、`perplexity_async/emailnator.py` 和 `perplexity_async/labs.py` 中同步执行第一阶段的所有更改。
+- 提供异步安全的重试和频率限制装饰器（接收异步可调用对象）。
+- 使用 `async with aiohttp.ClientSession()` 并确保会话以可预测的方式关闭。
+- 添加 `pytest-asyncio` 测试，覆盖成功路径、流式传输和错误转换。
 
-    - Apply the same improvements to the Labs/WebSocket client.
-    - Guarantee cleanup of WebSocket sessions by using context managers or explicit `close()` calls.
-    - Translate low-level errors into the custom exception hierarchy.
+## 第三阶段 – 集成测试 (Phase 3 – Integration Tests)
 
-    ## Phase 2 – Async Client
+- 在 `tests/` 中扩展针对同步和异步客户端的模拟 (Mock) HTTP 会话测试。
+- 覆盖：成功的搜索、验证错误、流式分块解析、频率限制处理和重试逻辑。
+- 示例原型：
 
-    - Mirror every change from Phase 1 in `perplexity_async/client.py`, `perplexity_async/emailnator.py`, and `perplexity_async/labs.py`.
-    - Provide async-safe retry and rate-limit decorators (accepting async callables).
-    - Use `async with aiohttp.ClientSession()` and ensure sessions are closed predictably.
-    - Add tests with `pytest-asyncio` covering success paths, streaming, and error translation.
+```python
+@patch("perplexity.client.requests.Session")
+def test_search_basic(mock_session):
+    mock_resp = Mock()
+    mock_resp.json.return_value = {
+        "text": '{"steps":[{"FINAL":{"answer":"{\\"answer\\":\\"测试\\"}"}}]}'
+    }
+    mock_session.return_value.post.return_value = mock_resp
 
-    ## Phase 3 – Integration Tests
+    client = Client()
+    result = client.search("test query")
 
-    - Extend `tests/` with mocked HTTP sessions for sync and async clients.
-    - Cover: successful searches, validation errors, streaming chunk parsing, rate-limit handling, and retry logic.
-    - Example skeleton:
+    assert result["answer"] == "测试"
+```
 
-    ```python
-    @patch("perplexity.client.requests.Session")
-    def test_search_basic(mock_session):
-        mock_resp = Mock()
-        mock_resp.json.return_value = {
-            "text": '{"steps":[{"FINAL":{"answer":"{\"answer\":\"Test\"}"}}]}'
-        }
-        mock_session.return_value.post.return_value = mock_resp
+## 第四阶段 – 上下文管理器 (Phase 4 – Context Managers)
 
-        client = Client()
-        result = client.search("test query")
+- 为同步客户端实现 `__enter__` / `__exit__`，为异步客户端实现 `__aenter__` / `__aexit__`。
+- 确保即使发生错误，HTTP 会话、浏览器驱动和 WebSocket 连接也能正常关闭。
 
-        assert result["answer"] == "Test"
-    ```
+## 第五阶段 – 文档与示例 (Phase 5 – Documentation and Examples)
 
-    ## Phase 4 – Context Managers
+- 重构完成后更新 README 中的使用示例。
+- 为每个公共符号添加文档字符串，并运行 `pydocstyle`。
+- 如果引入了新的工作流（如上下文管理器的用法），则扩展 `examples/` 目录。
 
-    - Implement `__enter__`/`__exit__` for sync clients and `__aenter__`/`__aexit__` for async clients.
-    - Ensure HTTP sessions, browser drivers, and WebSocket connections close even if errors occur.
+## 支持工具 (Supporting Tooling)
 
-    ## Phase 5 – Documentation and Examples
+- `mypy perplexity/ perplexity_async/ --strict`
+- `pytest tests/ --cov=perplexity --cov-report=term-missing`
+- `black`, `isort`, `flake8`, `pylint`, `bandit`
+- `pydocstyle` (用于文档字符串校验)
+- 发布参考文档时使用 `sphinx-build -b html docs/ docs/_build/`
 
-    - Update README usage examples after the refactor.
-    - Add docstrings to every public symbol and run `pydocstyle`.
-    - Expand the `examples/` directory if new workflows are introduced (e.g., context manager usage).
+## 重构清单 (Refactor Checklist)
 
-    ## Supporting Tooling
+- [ ] 使用配置引用替换字面量
+- [ ] 移除所有 `print()` 语句（改用日志记录器）
+- [ ] 在所有发起请求的地方应用重试和频率限制装饰器
+- [ ] 在进行网络调用前强制执行验证辅助函数
+- [ ] 抛出自定义异常而非通用异常
+- [ ] 提供完整的类型提示和文档字符串
+- [ ] 为拥有资源的客户端实现上下文管理器
+- [ ] 添加同步和异步的集成测试
+- [ ] 在重构完成后更新 README、更新日志和示例
 
-    - `mypy perplexity/ perplexity_async/ --strict`
-    - `pytest tests/ --cov=perplexity --cov-report=term-missing`
-    - `black`, `isort`, `flake8`, `pylint`, and `bandit`
-    - `pydocstyle` for docstring validation
-    - `sphinx-build -b html docs/ docs/_build/` when publishing reference docs
+## 优先级排序 (Prioritization)
 
-    ## Refactor Checklist
+1. **高优先级** – 重构 `perplexity/client.py`，在异步模块间共享基础架构，更新文档。
+2. **中优先级** – 集成测试、异步专用辅助函数、响应缓存。
+3. **低优先级** – CLI 工具、Sphinx 站点、性能分析。
 
-    - [ ] Replace literals with configuration references
-    - [ ] Remove all `print()` statements (use the logger)
-    - [ ] Apply retry and rate-limit decorators everywhere requests are made
-    - [ ] Enforce validation helpers before network calls
-    - [ ] Raise custom exceptions instead of generic ones
-    - [ ] Provide complete type hints and docstrings
-    - [ ] Implement context managers for clients that own resources
-    - [ ] Add sync and async integration tests
-    - [ ] Update README, CHANGELOG, and examples after the refactor
+## 工作建议 (Working Tips)
 
-    ## Prioritization
+1. 每次只重构一个模块，保持提交记录的专注。
+2. 每次重大更改后，运行 Pytest 套件和 `verify_implementation.py`。
+3. 一旦完成一个重构片段，立即更新更新日志。
+4. 即使您是唯一的维护者，也请使用 Pull Request 进行审查，以保留完整的历史文档。
 
-    1. **High priority** – Refactor `perplexity/client.py`, share infrastructure across async modules, update documentation.
-    2. **Medium priority** – Integration tests, async-specific helpers, response caching.
-    3. **Low priority** – CLI tooling, Sphinx site, performance profiling.
+---
 
-    ## Working Tips
-
-    1. Refactor one module at a time and keep commits focused.
-    2. Run the pytest suite and `verify_implementation.py` after each major change.
-    3. Update the changelog as soon as a refactor slice lands.
-    4. Use pull requests for review even if you are the sole maintainer to keep a documented history.
-
-    ---
-
-    **Last updated**: January 2025
+**上次更新**: 2025年1月

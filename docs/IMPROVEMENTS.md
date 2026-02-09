@@ -1,210 +1,282 @@
-# Suggested Improvements
+# 改进建议 (Suggested Improvements)
 
-**Status**: All improvement recommendations have now been implemented successfully.
+**状态**: 所有改进建议现已成功实施。
 
-This document organizes the original improvement plan by priority, from low to critical, and keeps the reference code snippets that guided the work.
-
----
-
-## Low Priority – Code Quality
-
-### 1. Complete Type Hints
-**Problem**
-- Functions shipped without type hints, which hurt IDE assistance and static analysis.
-
-**Solution**
-- Adopt `typing` annotations for every public function, including literal modes, optional model names, and structured outputs.
-
-**Impact**
-- Easier maintenance, fewer runtime type errors, and first-class IDE support.
-
-### 2. Externalized Configuration
-**Problem**
-- URLs, versions, and limits were hardcoded; switching environments required code edits.
-
-**Solution**
-- Move API options, rate limiting, account-pool policies, and logging preferences into a configuration module or YAML file.
-
-**Impact**
-- Enables dev/stage/prod profiles without code changes and keeps secrets/configuration in one place.
-
-### 3. Automated Tests
-**Problem**
-- No unit or integration tests to guard against regressions.
-
-**Solution**
-- Create a `tests/` package with sync and async client tests, parser tests, and validation coverage.
-
-**Impact**
-- Confidence to refactor, faster feedback in CI, and reproducible bug reports.
-
-### 4. API Documentation
-**Problem**
-- Missing docstrings and limited README examples.
-
-**Solution**
-- Adopt Google-style docstrings, dedicate an examples directory, and document error-handling flows and response schemas.
-
-**Impact**
-- Lower onboarding time for contributors and clearer expectations for library consumers.
-
-### 5. Packaging (pyproject.toml)
-**Problem**
-- Manual dependency management prevented `pip install` workflows.
-
-**Solution**
-- Author a complete `pyproject.toml` with optional dependency groups for driver, async, and dev tooling.
-
-**Impact**
-- Simplifies distribution, reproducible installs, and metadata publication.
+本文档按优先级（从低到关键）组织了最初的改进计划，并保留了指导工作的参考代码片段。
 
 ---
 
-## Medium Priority – Performance
+## 低优先级 – 代码质量 (Low Priority)
 
-### 6. Response Cache
-**Problem**
-- Identical queries repeated unnecessarily.
+### 1. 完善类型提示 (Type Hints)
 
-**Solution**
-- Layer an in-memory cache (LRU or TTL-based) keyed by query payload.
+**问题**
 
-**Impact**
-- Reduces API usage and improves perceived latency.
+- 函数发布时没有类型提示，这影响了 IDE 的辅助功能和静态分析。
 
-### 7. Asynchronous Batch Processing
-**Problem**
-- Sequential requests wasted time.
+**解决方案**
 
-**Solution**
-- Provide helper functions that launch batches of async searches with `asyncio.gather`.
+- 为每个公共函数采用 `typing` 注解，包括字面量模式、可选模型名称和结构化输出。
 
-**Impact**
-- Shortens batch workloads by more than 70 percent on average.
+**影响**
 
-### 8. Connection Pooling
-**Problem**
-- Creating a new TCP/TLS connection for each call added overhead.
+- 更易于维护，减少运行时类型错误，并提供一流的 IDE 支持。
 
-**Solution**
-- Keep a configured `requests.Session` (or `aiohttp.ClientSession`) alive per client.
+### 2. 配置外部化 (Externalized Configuration)
 
-**Impact**
-- Drops per-request latency by roughly 20–30 percent.
+**问题**
 
-### 9. Streaming Optimization
-**Problem**
-- Streaming accumulated every chunk in memory and reparsed repeatedly.
+- URL、版本号和限制都是硬编码的；切换环境需要修改代码。
 
-**Solution**
-- Yield parsed chunks lazily while skipping malformed data.
+**解决方案**
 
-**Impact**
-- Cuts memory consumption and keeps large answers responsive.
+- 将 API 选项、频率限制、账号池策略和日志偏好移至配置模块或 YAML 文件中。
 
----
+**影响**
 
-## High Priority – Robustness
+- 无需修改代码即可启用开发/测试/生产环境配置，并将密钥/配置集中管理。
 
-### 10. Structured Logging
-**Problem**
-- `print` statements made troubleshooting impossible.
+### 3. 自动化测试 (Automated Tests)
 
-**Solution**
-- Central logging configuration with log levels, rotating file handlers, and context metadata.
+**问题**
 
-**Impact**
-- Faster diagnostics and searchable operational trails.
+- 缺乏单元测试或集成测试，无法防止功能倒退。
 
-### 11. Account Persistence
-**Problem**
-- Disposable accounts disappeared between runs.
+**解决方案**
 
-**Solution**
-- Store cookies and remaining quotas on disk so clients can resume without recreating accounts.
+- 创建一个 `tests/` 包，包含同步和异步客户端测试、解析器测试以及验证覆盖。
 
-**Impact**
-- Eliminates unnecessary account creation delays.
+**影响**
 
-### 12. Specific Error Handling
-**Problem**
-- Blanket `except Exception` blocks hid failure reasons.
+- 重构时更有信心，CI 流程反馈更快，Bug 报告可复现。
 
-**Solution**
-- Define a typed exception hierarchy (`PerplexityError`, `RateLimitError`, etc.) and raise meaningful errors.
+### 4. API 文档 (API Documentation)
 
-**Impact**
-- Callers can handle rate limits, auth failures, and network issues independently.
+**问题**
 
-### 13. Health Monitoring
-**Problem**
-- No visibility into success rates or latency trends.
+- 缺少文档字符串 (Docstrings)，README 中的示例也有限。
 
-**Solution**
-- Track core metrics (success, failure, accounts created, response time) and expose an aggregated status.
+**解决方案**
 
-**Impact**
-- Early warning for degraded performance and simplified incident response.
+- 采用 Google 风格的文档字符串，设立专门的示例目录，并记录错误处理流程和响应架构。
+
+**影响**
+
+- 降低贡献者的上手时间，并让库的使用者有更清晰的预期。
+
+### 5. 打包 (pyproject.toml)
+
+**问题**
+
+- 手动的依赖管理阻止了 `pip install` 工作流。
+
+**解决方案**
+
+- 编写完整的 `pyproject.toml`，并根据驱动、异步和开发工具设置可选的依赖组。
+
+**影响**
+
+- 简化分发，实现安装可复现，并支持元数据发布。
 
 ---
 
-## Critical Priority – Anti-Detection and Bypass
+## 中优先级 – 性能 (Medium Priority)
 
-### 14. User-Agent Rotation
-**Problem**
-- Static user agents and header order triggered Cloudflare defenses.
+### 6. 响应缓存 (Response Cache)
 
-**Solution**
-- Maintain a large rotating list of modern desktop fingerprints and randomize header ordering.
+**问题**
 
-**Impact**
-- Dramatically lowers detection rates.
+- 相同的查询被不必要地重复执行。
 
-### 15. Account Pool with Auto-Management
-**Problem**
-- Consuming a single account until exhaustion caused downtime.
+**解决方案**
 
-**Solution**
-- Maintain a pool of authenticated accounts, rotate through available quotas, and create replacements automatically.
+- 添加一层内存缓存（基于 LRU 或 TTL），以查询负载为键。
 
-**Impact**
-- Enables uninterrupted workloads with virtually unlimited queries.
+**影响**
 
-### 16. Intelligent Rate Limiting
-**Problem**
-- Sending bursts of traffic raised immediate blocks.
+- 减少 API 使用量，并提升用户感知的响应速度。
 
-**Solution**
-- Add a jittered delay window with adaptive slowdowns after sustained use.
+### 7. 异步批量处理 (Asynchronous Batch Processing)
 
-**Impact**
-- Keeps traffic within human-like patterns and avoids throttling.
+**问题**
 
-### 17. Exponential Backoff Retries
-**Problem**
-- Temporary failures were treated as fatal.
+- 顺序发起的请求非常耗时。
 
-**Solution**
-- Decorate outbound calls with capped, exponential retries for network, DNS, and rate limit errors.
+**解决方案**
 
-**Impact**
-- Recovers automatically from transient outages.
+- 提供辅助函数，通过 `asyncio.gather` 批量发起异步搜索。
 
-### 18. Automatic Emailnator Cookie Renewal
-**Problem**
-- Short-lived Emailnator cookies expired without notice, breaking account creation.
+**影响**
 
-**Solution**
-- Add a manager that refreshes cookies ahead of expiry and persists the new values.
+- 批量工作负载的处理时间平均缩短了 70% 以上。
 
-**Impact**
-- Keeps the account factory functional at all times.
+### 8. 连接池 (Connection Pooling)
+
+**问题**
+
+- 为每次调用创建新的 TCP/TLS 连接会增加额外开销。
+
+**解决方案**
+
+- 每个客户端保持一个已配置的 `requests.Session` (或 `aiohttp.ClientSession`) 活跃。
+
+**影响**
+
+- 单次请求的延迟大约降低了 20-30%。
+
+### 9. 流式传输优化 (Streaming Optimization)
+
+**问题**
+
+- 流式传输会将所有分块累积在内存中并反复重新解析。
+
+**解决方案**
+
+- 采用惰性 (Lazy) 产出解析后的分块，同时跳过格式错误的数据。
+
+**影响**
+
+- 降低内存消耗，并让超长答案的响应保持敏捷。
 
 ---
 
-## Impact Summary
+## 高优先级 – 健壮性 (High Priority)
 
-- **Critical (Anti-Detection)**: User-agent rotation, account pools, adaptive rate limiting, and retry logic keep automation undetected and resilient.
-- **High (Robustness)**: Structured logging, persistence, typed exceptions, and health monitoring make the system supportable.
-- **Medium (Performance)**: Caching, async batching, pooling, and optimized streaming reduce runtime and API consumption.
-- **Low (Code Quality)**: Type hints, externalized configuration, automated tests, and thorough documentation raise overall engineering quality.
+### 10. 结构化日志 (Structured Logging)
+
+**问题**
+
+- `print` 语句导致故障排除变得几乎不可能。
+
+**解决方案**
+
+- 建立包含日志级别、滚动文件处理器和上下文元数据的中心化日志配置。
+
+**影响**
+
+- 更快的诊断速度，以及可搜索的操作轨迹。
+
+### 11. 账号持久化 (Account Persistence)
+
+**问题**
+
+- 临时账号在两次运行之间会丢失。
+
+**解决方案**
+
+- 将 cookies 和剩余配额存储在磁盘上，以便客户端在不重新创建账号的情况下继续使用。
+
+**影响**
+
+- 消除了不必要的账号创建等待时间。
+
+### 12. 特定错误处理 (Specific Error Handling)
+
+**问题**
+
+- 笼统的 `except Exception` 块隐藏了失败原因。
+
+**解决方案**
+
+- 定义类型化的异常层级 (`PerplexityError`, `RateLimitError` 等) 并抛出有意义的错误。
+
+**影响**
+
+- 调用者可以独立处理频率限制、认证失败和网络问题。
+
+### 13. 健康监测 (Health Monitoring)
+
+**问题**
+
+- 无法直观了解成功率或延迟趋势。
+
+**解决方案**
+
+- 追踪核心指标（成功、失败、账号创建数、响应时间）并展示汇总状态。
+
+**影响**
+
+- 对性能下降提供早期预警，并简化事故响应流程。
+
+---
+
+## 关键优先级 – 防检测与绕过 (Critical Priority)
+
+### 14. User-Agent 轮换
+
+**问题**
+
+- 静态的 User-Agent 和固定的头信息顺序会触发 Cloudflare 的防御。
+
+**解决方案**
+
+- 维护一个包含现代桌面浏览器指纹的大型轮换列表，并随机化头信息顺序。
+
+**影响**
+
+- 大幅降低被检测到的概率。
+
+### 15. 具备自动管理的账号池
+
+**问题**
+
+- 单个账号由于过度使用而枯竭会导致服务中断。
+
+**解决方案**
+
+- 维护一个已验证账号的池，轮换使用可用配额，并自动创建替代账号。
+
+**影响**
+
+- 实现不间断的工作负载和近乎无限的查询。
+
+### 16. 智能频率限制 (Intelligent Rate Limiting)
+
+**问题**
+
+- 发送爆发性的流量会立即触发屏蔽。
+
+**解决方案**
+
+- 添加一个带有抖动 (Jitter) 的延迟窗口，并在持续使用后自适应减速。
+
+**影响**
+
+- 使流量符合人类行为模式，避免被限流。
+
+### 17. 指数退避重试 (Exponential Backoff Retries)
+
+**问题**
+
+- 临时性的失败被视为永久失败。
+
+**解决方案**
+
+- 使用针对网络、DNS 和限流错误的指数重试（设置上限）装饰对外调用。
+
+**影响**
+
+- 从瞬时故障中自动恢复。
+
+### 18. 自动更新 Emailnator Cookies
+
+**问题**
+
+- 短命的 Emailnator cookies 在无感知的情况下过期，导致账号创建功能失效。
+
+**解决方案**
+
+- 添加一个管理器，在过期前刷新 cookies 并持久化新值。
+
+**影响**
+
+- 确保账号“工厂”始终保持正常运行。
+
+---
+
+## 影响总结 (Impact Summary)
+
+- **关键 (防检测)**: User-agent 轮换、账号池、自适应限流和重试逻辑确保自动化流程不被检测且具备韧性。
+- **高 (健壮性)**: 结构化日志、持久化、类型化异常和健康监测增强了系统的可维护性。
+- **中 (性能)**: 缓存、异步批量、连接池和优化后的流式传输减少了运行时间和 API 消耗。
+- **低 (代码质量)**: 类型提示、配置外部化、自动化测试和完善的文档提升了整体工程质量。

@@ -1,61 +1,65 @@
-# Applied Corrections – Perplexity AI
+# 已应用的修正 – Perplexity AI (Applied Corrections)
 
-## Critical Bugs Fixed
+## 已修复的关键 Bug (Critical Bugs Fixed)
 
-### 1. Missing Import (Critical)
-- **File**: `perplexity/emailnator.py`
-- **Issue**: The `time` module was used but never imported.
-- **Fix**: Added `import time`.
-- **Status**: Resolved.
+### 1. 遗漏导入 (关键)
 
-### 2. Response Parsing Failure (Critical)
-- **Files**: `perplexity/client.py` and `perplexity_async/client.py`.
-- **Issue**: The upstream API changed its payload structure, introducing a nested JSON layout.
+- **文件**: `perplexity/emailnator.py`
+- **问题**: 使用了 `time` 模块但未进行导入。
+- **修复**: 添加了 `import time`。
+- **状态**: 已解决。
+
+### 2. 响应解析失败 (关键)
+
+- **文件**: `perplexity/client.py` 和 `perplexity_async/client.py`。
+- **问题**: 上游 API 更改了负载结构，引入了嵌套的 JSON 布局。
+
+接口返回结构如下：
 
 ```
-response['text']  # JSON string
-    -> parsed into steps[]
-            -> locate step where step_type == 'FINAL'
-                    -> content['answer']  # JSON string
-                            -> parsed into {'answer': str, 'chunks': list}
+response['text']  # JSON 字符串
+    -> 解析为 steps[] (步骤列表)
+            -> 找到 step_type 为 'FINAL' 的步骤
+                    -> content['answer']  # JSON 字符串
+                            -> 解析为 {'answer': str, 'chunks': list}
 ```
 
-- **Fix**:
-    - Added multi-stage parsing (text -> steps -> FINAL -> answer) with defensive checks.
-    - Extracted the `answer` field and the associated `chunks` list.
-    - Wrapped parsing with try/except blocks to prevent crashes.
-    - Validated intermediate fields before accessing them.
+- **修复**:
+  - 增加了多级解析逻辑（text -> steps -> FINAL -> answer），并包含防御性检查。
+  - 提取了 `answer` 字段和关联的 `chunks` 列表。
+  - 使用 try/except 块封装了解析过程，防止程序崩溃。
+  - 在访问字段前对中间层级进行了验证。
 
-- **Impact**:
-    - Search responses now return the final answer and chunk list consistently.
-    - Streaming mode yields all chunks without raising parsing errors.
-    - Both sync and async clients share the corrected logic.
+- **影响**:
+  - 搜索响应现在能稳定返回最终答案和分块列表。
+  - 流式模式现在能产出所有分块而不会抛出解析错误。
+  - 同步和异步客户端共享此修正逻辑。
 
-## Validation
+## 验证情况 (Validation)
 
-1. **Synchronous API** – `Client.search("What is 2+2?")` now returns `"2 + 2 equals 4."` with 14 captured chunks.
-2. **Synchronous streaming** – 79 chunks processed successfully while streaming `"What is Python?"`.
-3. **Async API** – `await Client().search("What is 2+2?")` returns the same final answer.
-4. **Async streaming** – 13 chunks parsed without errors.
+1. **同步 API** – 调用 `Client.search("What is 2+2?")` 现在能返回 `"2 + 2 equals 4."` 并捕获到 14 个分块信息。
+2. **同步流式传输** – 在流式获取 `"What is Python?"` 时成功处理了 79 个分块。
+3. **异步 API** – `await Client().search("What is 2+2?")` 返回相同的最终答案。
+4. **异步流式传输** – 成功解析 13 个分块，无任何错误。
 
-## Summary Table
+## 总结表 (Summary Table)
 
-| Item                    | Status   | Notes                                  |
-|-------------------------|----------|----------------------------------------|
-| Import `time`           | Complete | Added to `perplexity/emailnator.py`     |
-| Sync response parsing   | Complete | Multi-level extractor in place         |
-| Async response parsing  | Complete | Mirrors sync logic                     |
-| Sync streaming          | Complete | Streams 79 chunks without failures     |
-| Async streaming         | Complete | Streams 13 chunks without failures     |
-| Error handling          | Complete | Defensive try/except blocks            |
-| Field validation        | Complete | Ensures keys exist before access       |
+| 项目             | 状态   | 备注                                |
+| ---------------- | ------ | ----------------------------------- |
+| 导入 `time` 模块 | 已完成 | 已添加至 `perplexity/emailnator.py` |
+| 同步响应解析     | 已完成 | 多级提取逻辑已生效                  |
+| 异步响应解析     | 已完成 | 与同步逻辑保持一致                  |
+| 同步流式渲染     | 已完成 | 无故障流式处理 79 个分块            |
+| 异步流式渲染     | 已完成 | 无故障流式处理 13 个分块            |
+| 错误处理         | 已完成 | 增加了防御性的 try/except 块        |
+| 字段有效性验证   | 已完成 | 确保在访问前键名存在                |
 
-## Next Steps
+## 下一步 (Next Steps)
 
-With the blocking bugs resolved the project can move on to the long-term improvements captured in `docs/IMPROVEMENTS.md` and `docs/NEXT_STEPS.md`, namely:
+随着阻塞性 Bug 的解决，项目可以继续推进 `docs/IMPROVEMENTS.md` 和 `docs/NEXT_STEPS.md` 中记录的长期改进计划，即：
 
-1. Add exhaustive type hints across the legacy clients.
-2. Adopt the structured logging module everywhere.
-3. Replace remaining literals with the centralized configuration.
-4. Expand the unit and integration test suites.
-5. Keep the README, changelog, and examples up to date as refactors land.
+1. 为旧版客户端添加完善的类型提示。
+2. 在所有地方由于结构化日志模块。
+3. 使用中心化配置替换剩余的硬编码字面量。
+4. 扩展单元测试和集成测试套件。
+5. 随着重构的推进，保持 README、更新日志和示例代码同步。

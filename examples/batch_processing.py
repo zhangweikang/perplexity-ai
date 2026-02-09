@@ -1,8 +1,8 @@
 """
-Batch processing example.
+Batch processing example. / 批量处理示例。
 
-This example demonstrates how to process multiple queries
-efficiently using async batch processing.
+This example demonstrates how to process multiple queries / 此示例演示了如何使用异步批量处理
+efficiently using async batch processing. / 高效地处理多个查询。
 """
 
 import asyncio
@@ -11,7 +11,7 @@ from time import time
 
 
 async def process_queries_sequential(queries):
-    """Process queries sequentially."""
+    """Process queries sequentially. / 按顺序处理查询。"""
     print("\n[Method 1] Sequential processing")
     print("-" * 60)
 
@@ -30,17 +30,17 @@ async def process_queries_sequential(queries):
 
 
 async def process_queries_concurrent(queries):
-    """Process queries concurrently."""
+    """Process queries concurrently. / 并发处理查询。"""
     print("\n[Method 2] Concurrent processing")
     print("-" * 60)
 
     client = await perplexity_async.Client()
     start = time()
 
-    # Create tasks for all queries
+    # Create tasks for all queries / 为所有查询创建任务
     tasks = [client.search(q) for q in queries]
 
-    # Execute concurrently
+    # Execute concurrently / 并发执行
     print(f"Processing {len(queries)} queries concurrently...")
     results = await asyncio.gather(*tasks)
 
@@ -50,12 +50,12 @@ async def process_queries_concurrent(queries):
 
 
 async def main():
-    """Run batch processing example."""
+    """Run batch processing example. / 运行批量处理示例。"""
     print("=" * 60)
     print("Perplexity API - Batch Processing Example")
     print("=" * 60)
 
-    # Sample queries
+    # Sample queries / 示例查询
     queries = [
         "What is Python?",
         "What is JavaScript?",
@@ -66,13 +66,13 @@ async def main():
 
     print(f"\nProcessing {len(queries)} queries...")
 
-    # Sequential
+    # Sequential / 顺序处理
     results_seq = await process_queries_sequential(queries)
 
-    # Concurrent
+    # Concurrent / 并发处理
     results_con = await process_queries_concurrent(queries)
 
-    # Compare results
+    # Compare results / 比较结果
     print("\n" + "=" * 60)
     print("Results comparison:")
     print("-" * 60)

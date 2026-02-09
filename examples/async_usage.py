@@ -1,8 +1,8 @@
 """
-Async usage example.
+Async usage example. / 异步使用示例。
 
-This example demonstrates how to use the async API
-for non-blocking operations and concurrent queries.
+This example demonstrates how to use the async API / 此示例演示了如何使用异步 API
+for non-blocking operations and concurrent queries. / 进行非阻塞操作和并发查询。
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import perplexity_async
 
 
 async def single_query():
-    """Make a single async query."""
+    """Make a single async query. / 发起单个异步查询。"""
     print("\n[Example 1] Single async query")
     print("-" * 60)
 
@@ -22,7 +22,7 @@ async def single_query():
 
 
 async def multiple_queries():
-    """Make multiple concurrent queries."""
+    """Make multiple concurrent queries. / 发起多个并发查询。"""
     print("\n[Example 2] Multiple concurrent queries")
     print("-" * 60)
 
@@ -30,7 +30,7 @@ async def multiple_queries():
 
     queries = ["What is AI?", "What is ML?", "What is deep learning?"]
 
-    # Execute concurrently
+    # Execute concurrently / 并发执行
     tasks = [client.search(q) for q in queries]
     responses = await asyncio.gather(*tasks)
 
@@ -41,7 +41,7 @@ async def multiple_queries():
 
 
 async def streaming_async():
-    """Stream response asynchronously."""
+    """Stream response asynchronously. / 异步流式传输响应。"""
     print("\n[Example 3] Async streaming")
     print("-" * 60)
 
@@ -58,7 +58,7 @@ async def streaming_async():
 
 
 async def main():
-    """Run all async examples."""
+    """Run all async examples. / 运行所有异步示例。"""
     print("=" * 60)
     print("Perplexity API - Async Examples")
     print("=" * 60)

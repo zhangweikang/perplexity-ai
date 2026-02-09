@@ -24,7 +24,7 @@ class AsyncMixin:
     async def __initobj(self):
         assert not self.async_initialized
         self.async_initialized = True
-        # pass the parameters to __ainit__ that passed to __init__
+        # pass the parameters to __ainit__ that passed to __init__ / 将传递给 __init__ 的参数传递给 __ainit__
         await self.__ainit__(*self.__storedargs[0], **self.__storedargs[1])
         return self
 

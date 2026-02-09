@@ -1,11 +1,11 @@
-# Importing necessary modules
-# re: Regular expressions for pattern matching
-# sys: System-specific parameters and functions
-# json: JSON parsing and serialization
-# random: Random number generation
-# mimetypes: Guessing MIME types of files
-# uuid: Generating unique identifiers
-# curl_cffi: HTTP requests and multipart form data handling
+# Importing necessary modules / 导入必要的模块
+# re: Regular expressions for pattern matching / re: 用于模式匹配的正则表达式
+# sys: System-specific parameters and functions / sys: 系统特定的参数和函数
+# json: JSON parsing and serialization / json: JSON 解析和序列化
+# random: Random number generation / random: 随机数生成
+# mimetypes: Guessing MIME types of files / mimetypes: 猜测文件的 MIME 类型
+# uuid: Generating unique identifiers / uuid: 生成唯一标识符
+# curl_cffi: HTTP requests and multipart form data handling / curl_cffi: HTTP 请求和多部分表单数据处理
 import re
 import sys
 import json
@@ -20,6 +20,7 @@ from .config import (
     ENDPOINT_AUTH_SIGNIN,
     ENDPOINT_SSE_ASK,
     ENDPOINT_UPLOAD_URL,
+    MODEL_MAPPINGS,
 )
 from .emailnator import Emailnator
 
@@ -30,27 +31,27 @@ class Client:
     """
 
     def __init__(self, cookies={}):
-        # Initialize an HTTP session with default headers and optional cookies
+        # Initialize an HTTP session with default headers and optional cookies / 使用默认头和可选的 cookies 初始化 HTTP 会话
         self.session = requests.Session(
             headers=DEFAULT_HEADERS.copy(),
             cookies=cookies,
             impersonate="chrome",
         )
 
-        # Flags and counters for account and query management
-        self.own = bool(cookies)  # Indicates if the client uses its own account
-        self.copilot = 0 if not cookies else float("inf")  # Remaining pro queries
-        self.file_upload = 0 if not cookies else float("inf")  # Remaining file uploads
+        # Flags and counters for account and query management / 账号和查询管理的标志及计数器
+        self.own = bool(cookies)  # Indicates if the client uses its own account / 指示客户端是否使用自己的账号
+        self.copilot = 0 if not cookies else float("inf")  # Remaining pro queries / 剩余的 pro 查询次数
+        self.file_upload = 0 if not cookies else float("inf")  # Remaining file uploads / 剩余的文件上传次数
 
-        # Regular expression for extracting sign-in links
+        # Regular expression for extracting sign-in links / 用于提取登录链接的正则表达式
         self.signin_regex = re.compile(
             r'"(https://www\\.perplexity\\.ai/api/auth/callback/email\\?' r'callbackUrl=.*?)"'
         )
 
-        # Unique timestamp for session identification
+        # Unique timestamp for session identification / 用于会话识别的唯一时间戳
         self.timestamp = format(random.getrandbits(32), "08x")
 
-        # Initialize session by making a GET request
+        # Initialize session by making a GET request / 通过发起 GET 请求初始化会话
         self.session.get(ENDPOINT_AUTH_SESSION)
 
     def create_account(self, cookies):
@@ -59,10 +60,10 @@ class Client:
         """
         while True:
             try:
-                # Initialize Emailnator client
+                # Initialize Emailnator client / 初始化 Emailnator 客户端
                 emailnator_cli = Emailnator(cookies)
 
-                # Send a POST request to initiate account creation
+                # Send a POST request to initiate account creation / 发送 POST 请求以启动账号创建
                 resp = self.session.post(
                     ENDPOINT_AUTH_SIGNIN,
                     data={
@@ -75,9 +76,9 @@ class Client:
                     },
                 )
 
-                # Check if the response is successful
+                # Check if the response is successful / 检查响应是否成功
                 if resp.ok:
-                    # Wait for the sign-in email to arrive
+                    # Wait for the sign-in email to arrive / 等待登录邮件到达
                     new_msgs = emailnator_cli.reload(
                         wait_for=lambda x: x["subject"] == "Sign in to Perplexity",
                         timeout=20,
@@ -91,14 +92,14 @@ class Client:
             except Exception:
                 pass
 
-        # Extract the sign-in link from the email
+        # Extract the sign-in link from the email / 从电子邮件中提取登录链接
         msg = emailnator_cli.get(func=lambda x: x["subject"] == "Sign in to Perplexity")
         new_account_link = self.signin_regex.search(emailnator_cli.open(msg["messageID"])).group(1)
 
-        # Complete the account creation process
+        # Complete the account creation process / 完成账号创建过程
         self.session.get(new_account_link)
 
-        # Update query and file upload limits
+        # Update query and file upload limits / 更新查询和文件上传限制
         self.copilot = 5
         self.file_upload = 10
 
@@ -112,7 +113,7 @@ class Client:
         sources=["web"],
         files={},
         stream=False,
-        language="en-US",
+        language="zh-CN",
         follow_up=None,
         incognito=False,
     ):
@@ -130,7 +131,7 @@ class Client:
         - follow_up: Information for follow-up queries.
         - incognito: Whether to enable incognito mode.
         """
-        # Validate input parameters
+        # Validate input parameters / 验证输入参数
         assert mode in [
             "auto",
             "pro",
@@ -141,14 +142,8 @@ class Client:
             model
             in {
                 "auto": [None],
-                "pro": [
-                    None,
-                    "sonar",
-                    "gpt-5.2",
-                    "claude-4.5-sonnet",
-                    "grok-4.1",
-                ],
-                "reasoning": [None, "gpt-5.2-thinking", "claude-4.5-sonnet-thinking", "gemini-3.0-pro", "kimi-k2-thinking", "grok-4.1-reasoning"],
+                "pro": list(MODEL_MAPPINGS["pro"].keys()),
+                "reasoning": list(MODEL_MAPPINGS["reasoning"].keys()),
                 "deep research": [None],
             }[mode]
             if self.own
@@ -162,13 +157,13 @@ class Client:
         ), "No remaining pro queries."
         assert self.file_upload - len(files) >= 0 if files else True, "File upload limit exceeded."
 
-        # Update query and file upload counters
+        # Update query and file upload counters / 更新查询和文件上传计数器
         self.copilot = (
             self.copilot - 1 if mode in ["pro", "reasoning", "deep research"] else self.copilot
         )
         self.file_upload = self.file_upload - len(files) if files else self.file_upload
 
-        # Upload files and prepare the query payload
+        # Upload files and prepare the query payload / 上传文件并准备查询负载
         uploaded_files = []
         for filename, file in files.items():
             file_type = mimetypes.guess_type(filename)[0]
@@ -186,7 +181,7 @@ class Client:
                 )
             ).json()
 
-            # Upload the file to the server
+            # Upload the file to the server / 将文件上传到服务器
             mp = CurlMime()
             for key, value in file_upload_info["fields"].items():
                 mp.addpart(name=key, data=value)
@@ -202,7 +197,7 @@ class Client:
             if not upload_resp.ok:
                 raise Exception("File upload error", upload_resp)
 
-            # Extract the uploaded file URL
+            # Extract the uploaded file URL / 提取已上传文件的 URL
             if "image/upload" in file_upload_info["s3_object_url"]:
                 uploaded_url = re.sub(
                     r"/private/s--.*?--/v\\d+/user_uploads/",
@@ -214,7 +209,7 @@ class Client:
 
             uploaded_files.append(uploaded_url)
 
-        # Prepare the JSON payload for the query
+        # Prepare the JSON payload for the query / 准备查询的 JSON 负载
         json_data = {
             "query_str": query,
             "params": {
@@ -227,32 +222,14 @@ class Client:
                 "language": language,
                 "last_backend_uuid": (follow_up["backend_uuid"] if follow_up else None),
                 "mode": "concise" if mode == "auto" else "copilot",
-                "model_preference": {
-                    "auto": {None: "turbo"},
-                    "pro": {
-                        None: "pplx_pro",
-                        "sonar": "experimental",
-                        "gpt-5.2": "gpt52",
-                        "claude-4.5-sonnet": "claude45sonnet",
-                        "grok-4.1": "grok41nonreasoning",
-                    },
-                    "reasoning": {
-                        None: "pplx_reasoning",
-                        "gpt-5.2-thinking": "gpt52_thinking",
-                        "claude-4.5-sonnet-thinking": "claude45sonnetthinking",
-                        "gemini-3.0-pro": "gemini30pro",
-                        "kimi-k2-thinking": "kimik2thinking",
-                        "grok-4.1-reasoning": "grok41reasoning",
-                    },
-                    "deep research": {None: "pplx_alpha"},
-                }[mode][model],
+                "model_preference": MODEL_MAPPINGS[mode][model],
                 "source": "default",
                 "sources": sources,
                 "version": "2.18",
             },
         }
 
-        # Send the query request and handle the response
+        # Send the query request and handle the response / 发送查询请求并处理响应
         resp = self.session.post(ENDPOINT_SSE_ASK, json=json_data, stream=True)
         chunks = []
 
@@ -267,11 +244,11 @@ class Client:
                     try:
                         content_json = json.loads(content[len("event: message\r\ndata: ") :])
 
-                        # Parse the nested 'text' field if it exists
+                        # Parse the nested 'text' field if it exists / 如果存在嵌套的 'text' 字段则进行解析
                         if "text" in content_json and content_json["text"]:
                             try:
                                 text_parsed = json.loads(content_json["text"])
-                                # Extract answer from FINAL step if available
+                                # Extract answer from FINAL step if available / 如果有 FINAL 步骤，从中提取答案
                                 if isinstance(text_parsed, list):
                                     for step in text_parsed:
                                         if step.get("step_type") == "FINAL":
@@ -307,11 +284,11 @@ class Client:
                 try:
                     content_json = json.loads(content[len("event: message\r\ndata: ") :])
 
-                    # Parse the nested 'text' field if it exists
+                    # Parse the nested 'text' field if it exists / 如果存在嵌套的 'text' 字段则进行解析
                     if "text" in content_json and content_json["text"]:
                         try:
                             text_parsed = json.loads(content_json["text"])
-                            # Extract answer from FINAL step if available
+                            # Extract answer from FINAL step if available / 如果有 FINAL 步骤，从中提取答案
                             if isinstance(text_parsed, list):
                                 for step in text_parsed:
                                     if step.get("step_type") == "FINAL":

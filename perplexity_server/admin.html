@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Bridge Admin - Perplexity</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #007AFF;
+            --bg-color: #F5F5F7;
+            --card-bg: #FFFFFF;
+            --text-color: #1D1D1F;
+            --text-secondary: #86868B;
+            --border-color: #D2D2D7;
+            --success-color: #34C759;
+            --error-color: #FF3B30;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        header {
+            background-color: rgba(255, 255, 255, 0.7);
+            backdrop-filter: saturate(180%) blur(20px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.8rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.02em; }
+
+        .container {
+            max-width: 1000px;
+            margin: 2rem auto;
+            padding: 0 1.5rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            background: #E8E8ED;
+            padding: 4px;
+            border-radius: 12px;
+            width: fit-content;
+        }
+
+        .tab {
+            padding: 0.5rem 1.25rem;
+            border-radius: 9px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .tab.active {
+            background: var(--card-bg);
+            color: var(--text-color);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .panel {
+            display: none;
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.03);
+            border: 1px solid var(--border-color);
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .panel.active { display: block; }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        h2 { font-size: 1.2rem; font-weight: 600; margin: 0; }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 10px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+        }
+
+        button:hover { transform: scale(1.02); opacity: 0.9; }
+        button:active { transform: scale(0.98); }
+        button.secondary { background-color: #F2F2F7; color: var(--text-color); }
+        button.refresh { background: none; color: var(--primary-color); font-weight: 600; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th { text-align: left; color: var(--text-secondary); font-weight: 500; padding: 1rem; border-bottom: 1px solid var(--border-color); font-size: 0.8rem; text-transform: uppercase; }
+        td { padding: 1rem; border-bottom: 1px solid #F5F5F7; font-size: 0.9rem; }
+        tr.log-row:hover { background: #F9F9FB; }
+
+        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
+        .status-200 { background: #E1F8EB; color: #2D6A4F; }
+        .status-err { background: #FFE5E5; color: #D72C2C; }
+
+        .cookie-list { display: grid; gap: 0.75rem; }
+        .cookie-item { display: grid; grid-template-columns: 240px 1fr; align-items: center; padding: 0.75rem; background: #F9F9FB; border-radius: 10px; border: 1px solid #F0F0F3; }
+        .cookie-label { font-size: 0.8rem; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        input { border: 1px solid var(--border-color); padding: 0.5rem 0.75rem; border-radius: 8px; font-family: inherit; font-size: 0.85rem; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
+        input:focus { outline: none; border-color: var(--primary-color); background: white; }
+
+        /* Modal Blur Overlay */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.1);
+            backdrop-filter: blur(15px);
+            z-index: 1000;
+            align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.3s;
+        }
+        .modal-overlay.active { display: flex; opacity: 1; }
+        
+        .modal {
+            background: rgba(255, 255, 255, 0.9);
+            width: 90%; max-width: 800px; max-height: 80vh;
+            border-radius: 24px; padding: 2.5rem;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.12);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            display: flex; flex-direction: column;
+            transform: scale(0.95); transition: transform 0.3s;
+        }
+        .modal-overlay.active .modal { transform: scale(1); }
+
+        .modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; }
+        .modal-close { cursor: pointer; font-size: 1.5rem; color: var(--text-secondary); padding: 5px; }
+        .modal-body { overflow-y: auto; flex: 1; }
+        
+        pre {
+            background: #1D1D1F; color: #F5F5F7; padding: 1.25rem; border-radius: 12px;
+            font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.8rem;
+            line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+            margin: 1rem 0;
+        }
+
+        .streaming-indicator {
+            display: inline-block;
+            width: 8px; height: 8px; background: var(--primary-color);
+            border-radius: 50%; margin-right: 5px;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-title">Perplexity API Bridge</div>
+    <div style="display: flex; align-items: center; gap: 1.5rem;">
+        <span id="serverStatus" style="color: var(--success-color); font-size: 0.8rem; font-weight: 600;">● 服务器运行中</span>
+        <button id="refreshLogsTop" class="refresh">手动刷新</button>
+    </div>
+</header>
+
+<div class="container">
+    <div class="tabs">
+        <div class="tab active" data-target="cookiesPanel">Cookie 管理</div>
+        <div class="tab" data-target="logsPanel">请求历史</div>
+    </div>
+
+    <!-- Cookies Panel -->
+    <div id="cookiesPanel" class="panel active">
+        <div class="section-header">
+            <h2>设置 Cookies</h2>
+            <div style="display: flex; gap: 0.75rem;">
+                <button id="captureCookies" class="secondary">自动获取 (新标签页)</button>
+                <button id="saveCookies">保存并更新</button>
+            </div>
+        </div>
+        <div class="cookie-list" id="cookieList"></div>
+    </div>
+
+    <!-- Logs Panel -->
+    <div id="logsPanel" class="panel">
+        <div class="section-header">
+            <h2>业务请求记录</h2>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">每秒自动同步最新状态</div>
+        </div>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>协议</th>
+                        <th>模型</th>
+                        <th>状态</th>
+                        <th>耗时</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="logsList"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="detailModalOverlay">
+    <div class="modal">
+        <div class="modal-header">
+            <div>
+                <h2 id="modalTitle">请求详情</h2>
+                <div id="modalSub" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px;"></div>
+            </div>
+            <div class="modal-close">&times;</div>
+        </div>
+        <div class="modal-body">
+            <h4 style="margin: 1.5rem 0 0.5rem 0;">Payload (输入内容):</h4>
+            <pre id="modalInput"></pre>
+            <h4 style="margin: 1.5rem 0 0.5rem 0;">Response (响应内容):</h4>
+            <pre id="modalOutput"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+    let logsCache = [];
+
+    function loadCookies() {
+        $.get("/api/cookies", function(data) {
+            const list = $("#cookieList");
+            list.empty();
+            // Highlight main cookies
+            const mainKeys = ['pplx.visitor-id', '__Secure-next-auth.session-token', 'pplx.search-mode'];
+            const allKeys = Object.keys(data).sort((a,b) => {
+                const ai = mainKeys.indexOf(a), bi = mainKeys.indexOf(b);
+                if (ai !== -1 && bi !== -1) return ai - bi;
+                return ai !== -1 ? -1 : (bi !== -1 ? 1 : a.localeCompare(b));
+            });
+
+            allKeys.forEach(key => {
+                list.append(`
+                    <div class="cookie-item">
+                        <div class="cookie-label" title="${key}">${key}</div>
+                        <input type="text" class="cookie-input" data-key="${key}" value="${data[key]}">
+                    </div>
+                `);
+            });
+        });
+    }
+
+    function loadLogs() {
+        $.get("/api/logs", function(data) {
+            logsCache = data;
+            const list = $("#logsList");
+            const currentCount = list.find('tr').length;
+            list.empty();
+            data.forEach((log, index) => {
+                const statusClass = log.status === 200 ? "status-200" : "status-err";
+                const isStreaming = log.output === "[Streaming...]";
+                const modelName = log.model || '-';
+                list.append(`
+                    <tr class="log-row" onclick="showDetail(${index})" style="cursor: pointer;">
+                        <td><small>${log.time.split(' ')[1]}</small></td>
+                        <td><strong>${log.protocol}</strong></td>
+                        <td><small style="color: var(--text-secondary)">${modelName}</small></td>
+                        <td><span class="status-badge ${statusClass}">${log.status}</span></td>
+                        <td><span style="color: var(--text-secondary)">${log.latency}ms</span></td>
+                        <td>
+                            <button class="secondary" style="padding: 2px 10px; font-size: 0.75rem;">
+                                ${isStreaming ? '<span class="streaming-indicator"></span>详情' : '详情'}
+                            </button>
+                        </td>
+                    </tr>
+                `);
+            });
+        });
+    }
+
+    function showDetail(index) {
+        const log = logsCache[index];
+        $("#modalTitle").text(`${log.protocol} 协议详情`);
+        $("#modalSub").text(`${log.method} ${log.path} at ${log.time}`);
+        
+        let out = log.output;
+        try { out = JSON.stringify(JSON.parse(out), null, 2); } catch(e) {}
+        
+        $("#modalInput").text(log.input);
+        $("#modalOutput").text(out);
+        $("#detailModalOverlay").addClass("active");
+    }
+
+    $(function() {
+        $(".modal-close, #detailModalOverlay").click(function(e) {
+            if (e.target === this) $("#detailModalOverlay").removeClass("active");
+        });
+
+        $(".tab").click(function() {
+            $(".tab").removeClass("active"); $(this).addClass("active");
+            $(".panel").removeClass("active"); $("#" + $(this).data("target")).addClass("active");
+            if ($(this).data("target") === "logsPanel") loadLogs();
+        });
+
+        $("#saveCookies").click(function() {
+            const cookies = {};
+            $(".cookie-input").each(function() { cookies[$(this).data("key")] = $(this).val(); });
+            $.ajax({
+                url: "/api/cookies", type: 'POST', contentType: 'application/json',
+                data: JSON.stringify(cookies),
+                success: function() { alert("配置已保存，客户端已重新初始化。"); }
+            });
+        });
+
+        $("#captureCookies").click(function() {
+            const btn = $(this);
+            btn.text("正在自动获取...").prop("disabled", true);
+            
+            // Step 1: Tell backend to start capture
+            $.post("/api/capture-cookies", function(data) {
+                btn.text("自动获取 (新标签页)").prop("disabled", false);
+                if (data.status === "error") {
+                    alert("错误: " + data.message);
+                } else {
+                    alert("Cookie 已成功从浏览器同步！");
+                    loadCookies();
+                }
+            });
+        });
+
+        $("#refreshLogsTop").click(loadLogs);
+        
+        loadCookies();
+        setInterval(() => { if ($("#logsPanel").hasClass("active")) loadLogs(); }, 1500);
+    });
+</script>
+
+</body>
+</html>

@@ -1,15 +1,15 @@
 """
-Account creation example.
+Account creation example. / 账号创建示例。
 
-This example demonstrates how to create new accounts
-automatically using Emailnator for unlimited queries.
+This example demonstrates how to create new accounts / 此示例演示了如何使用 Emailnator
+automatically using Emailnator for unlimited queries. / 自动创建新账号以实现无限查询。
 """
 
 import perplexity
 
 
 def main():
-    """Run account creation example."""
+    """Run account creation example. / 运行账号创建示例。"""
     print("=" * 60)
     print("Perplexity API - Account Creation Example")
     print("=" * 60)
@@ -17,7 +17,7 @@ def main():
     print("\nNote: This example requires Emailnator cookies")
     print("See README for instructions on obtaining cookies\n")
 
-    # Example with Emailnator cookies (replace with actual cookies)
+    # Example with Emailnator cookies (replace with actual cookies) / 使用 Emailnator cookies 的示例（请替换为实际的 cookies）
     emailnator_cookies = {
         # 'XSRF-TOKEN': 'your-xsrf-token',
         # 'laravel_session': 'your-session',
@@ -50,7 +50,7 @@ response = client.search(
         print("-" * 60)
         return
 
-    # Actual implementation
+    # Actual implementation / 实际实现
     client = perplexity.Client()
 
     print("[1/3] Client created (no queries available)")
@@ -70,7 +70,7 @@ response = client.search(
     print(f"Enhanced queries available: {client.copilot}")
     print(f"File uploads available: {client.file_upload}")
 
-    # Test with enhanced mode
+    # Test with enhanced mode / 使用增强模式进行测试
     print("\nTesting with enhanced mode...")
     response = client.search("What is quantum entanglement?", mode="pro")
 
