@@ -568,6 +568,7 @@
       <div class="tabs">
         <div class="tab active" data-target="cookiesPanel">Cookie 管理</div>
         <div class="tab" data-target="sessionsPanel">会话管理</div>
+        <div class="tab" data-target="modelAliasPanel">模型映射</div>
         <div class="tab" data-target="logsPanel">请求历史</div>
       </div>
 
@@ -666,6 +667,39 @@
         </div>
       </div>
 
+      <!-- Model Alias Panel -->
+      <div id="modelAliasPanel" class="panel">
+        <div class="section-header">
+          <div>
+            <h2>模型映射配置</h2>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">
+              配置模型名称别名。调用方发送的模型名称会先经过别名匹配，再映射到 Perplexity 模式。
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button id="addAliasRow" class="secondary">+ 新增</button>
+            <button id="resetAliases" class="secondary">恢复默认</button>
+            <button id="saveAliases">保存配置</button>
+          </div>
+        </div>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 35%;">别名 (调用方发送)</th>
+                <th style="width: 35%;">目标模型 (实际使用)</th>
+                <th style="width: 30%;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="aliasTableBody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top: 1rem; padding: 1rem; background: #f9f9fb; border-radius: 10px; font-size: 0.82rem; color: var(--text-secondary);">
+          <strong>说明：</strong>调用方在请求中发送的 model 字段如果精确匹配左侧别名，会被替换为右侧的目标模型名称，然后再进行 Perplexity 模式映射。
+          例如：别名 <code>gemini-3</code> → 目标 <code>gemini-3.0-pro</code> → Perplexity Pro 模式。
+        </div>
+      </div>
+
       <!-- Logs Panel -->
       <div id="logsPanel" class="panel">
         <div class="section-header">
@@ -710,6 +744,10 @@
           <div class="modal-close">&times;</div>
         </div>
         <div class="modal-body">
+          <div id="modalModelInfo" style="display:none; margin-bottom:1rem; padding:0.75rem 1rem; background:#f2f2f7; border-radius:10px; font-size:0.85rem;">
+            <span style="color:var(--text-secondary);">请求模型：</span><strong id="modalOriginalModel"></strong>
+            <span style="margin-left:1.5rem; color:var(--text-secondary);">转换后模型：</span><strong id="modalMappedModel" style="color:var(--primary-color);"></strong>
+          </div>
           <h4 style="margin: 1.5rem 0 0.5rem 0">Payload (输入内容):</h4>
           <pre id="modalInput"></pre>
           <h4 style="margin: 1.5rem 0 0.5rem 0">Response (响应内容):</h4>
@@ -797,6 +835,15 @@
         const log = logsCache[index];
         $("#modalTitle").text(`${log.protocol} 协议详情`);
         $("#modalSub").text(`${log.method} ${log.path} at ${log.time}`);
+
+        // 模型映射信息 / Model mapping info
+        if (log.original_model || log.mapped_model) {
+          $("#modalOriginalModel").text(log.original_model || "-");
+          $("#modalMappedModel").text(log.mapped_model || "-");
+          $("#modalModelInfo").show();
+        } else {
+          $("#modalModelInfo").hide();
+        }
 
         let out = log.output;
         try {
@@ -1216,6 +1263,120 @@
       });
       $("#threadSearchInput").on("keypress", function (e) {
         if (e.which === 13) { $("#threadSearchBtn").click(); }
+      });
+
+      // ========== Model Alias Management ==========
+      var currentAliases = {};
+
+      function loadModelAliases() {
+        $.get("/api/model-aliases", function (data) {
+          currentAliases = data;
+          renderAliasTable(data);
+        });
+      }
+
+      function renderAliasTable(aliases) {
+        var tbody = $("#aliasTableBody");
+        tbody.empty();
+        var entries = Object.entries(aliases);
+        if (entries.length === 0) {
+          tbody.append('<tr><td colspan="3" style="text-align:center;color:var(--text-secondary);padding:2rem;">暂无映射配置，点击"+ 新增"添加</td></tr>');
+          return;
+        }
+        entries.forEach(function (pair) {
+          var alias = pair[0], target = pair[1];
+          tbody.append(
+            '<tr class="alias-row">' +
+              '<td><input type="text" class="alias-key" value="' + escapeHtml(alias) + '" style="width:100%;padding:6px 10px;border:1px solid #d2d2d7;border-radius:8px;font-size:0.85rem;outline:none;" /></td>' +
+              '<td><input type="text" class="alias-value" value="' + escapeHtml(target) + '" style="width:100%;padding:6px 10px;border:1px solid #d2d2d7;border-radius:8px;font-size:0.85rem;outline:none;" /></td>' +
+              '<td><button class="danger-outline remove-alias-btn" style="padding:4px 14px;font-size:0.78rem;">删除</button></td>' +
+            '</tr>'
+          );
+        });
+      }
+
+      function escapeHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      $("#addAliasRow").click(function () {
+        $("#aliasTableBody").append(
+          '<tr class="alias-row">' +
+            '<td><input type="text" class="alias-key" value="" placeholder="输入别名" style="width:100%;padding:6px 10px;border:1px solid #d2d2d7;border-radius:8px;font-size:0.85rem;outline:none;" /></td>' +
+            '<td><input type="text" class="alias-value" value="" placeholder="输入目标模型" style="width:100%;padding:6px 10px;border:1px solid #d2d2d7;border-radius:8px;font-size:0.85rem;outline:none;" /></td>' +
+            '<td><button class="danger-outline remove-alias-btn" style="padding:4px 14px;font-size:0.78rem;">删除</button></td>' +
+          '</tr>'
+        );
+      });
+
+      $(document).on("click", ".remove-alias-btn", function () {
+        $(this).closest("tr").fadeOut(200, function () { $(this).remove(); });
+      });
+
+      $("#saveAliases").click(function () {
+        var aliases = {};
+        var valid = true;
+        $(".alias-row").each(function () {
+          var key = $(this).find(".alias-key").val().trim();
+          var value = $(this).find(".alias-value").val().trim();
+          if (key && value) {
+            aliases[key] = value;
+          } else if (key || value) {
+            valid = false;
+          }
+        });
+        if (!valid) {
+          alert("请确保每行的别名和目标模型都已填写。");
+          return;
+        }
+        $.ajax({
+          url: "/api/model-aliases",
+          method: "POST",
+          contentType: "application/json",
+          data: JSON.stringify(aliases),
+          success: function (data) {
+            currentAliases = data.aliases;
+            renderAliasTable(data.aliases);
+            // 显示保存成功提示
+            var btn = $("#saveAliases");
+            var originalText = btn.text();
+            btn.text("已保存 ✓").css("background", "var(--success-color)");
+            setTimeout(function () { btn.text(originalText).css("background", ""); }, 1500);
+          },
+          error: function (xhr) { alert("保存失败: " + xhr.responseText); }
+        });
+      });
+
+      $("#resetAliases").click(function () {
+        if (!confirm("确定恢复为默认模型映射配置？当前配置将被覆盖。")) return;
+        var defaults = {
+          "gemini-3": "gemini-3.0-pro",
+          "gemini-3-flash": "gemini-3.0-flash",
+          "gpt-5": "gpt-5.2-thinking",
+          "gpt-4": "gpt-5.2",
+          "claude-4": "claude-4.5-sonnet-thinking",
+          "claude-3": "claude-4.5-sonnet",
+          "grok-4": "grok-4.1",
+          "kimi-k2": "kimi-k2.5"
+        };
+        $.ajax({
+          url: "/api/model-aliases",
+          method: "POST",
+          contentType: "application/json",
+          data: JSON.stringify(defaults),
+          success: function (data) {
+            currentAliases = data.aliases;
+            renderAliasTable(data.aliases);
+          },
+          error: function (xhr) { alert("重置失败: " + xhr.responseText); }
+        });
+      });
+
+      // Auto-load aliases when tab is shown
+      $(document).on("click", ".tab", function () {
+        if ($(this).attr("data-target") === "modelAliasPanel") {
+          loadModelAliases();
+        }
       });
     </script>
   </body>

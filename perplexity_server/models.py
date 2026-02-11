@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class OpenAIMessage(BaseModel):
     role: str
-    content: str
+    content: Union[str, List[Dict[str, Any]]]
     name: Optional[str] = None
 
 class OpenAIChatCompletionRequest(BaseModel):
@@ -27,7 +27,7 @@ class OpenAIResponsesInput(BaseModel):
     """Input content for Responses API / Responses API 的输入内容"""
     type: Optional[str] = "message"
     role: Optional[str] = "user"
-    content: Optional[str] = None
+    content: Optional[Union[str, List[Dict[str, Any]]]] = None
 
 class OpenAIResponsesRequest(BaseModel):
     """OpenAI Responses API request format / OpenAI Responses API 请求格式"""
@@ -51,8 +51,8 @@ class ClaudeMessage(BaseModel):
 class ClaudeMessageRequest(BaseModel):
     model: str
     messages: List[ClaudeMessage]
-    system: Optional[str] = None
-    max_tokens: int
+    system: Optional[Union[str, List[Dict[str, Any]]]] = None
+    max_tokens: Optional[int] = 8192
     metadata: Optional[Dict[str, Any]] = None
     stop_sequences: Optional[List[str]] = None
     stream: Optional[bool] = False

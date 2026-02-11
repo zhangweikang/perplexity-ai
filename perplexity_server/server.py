@@ -7,13 +7,15 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from .models import (
-    OpenAIChatCompletionRequest,
     OpenAIResponsesRequest,
     ClaudeMessageRequest,
     GeminiGenerateContentRequest,
+    OpenAIChatCompletionRequest,
 )
 from .bridge import ProtocolBridge
 from perplexity.exceptions import RateLimitError, AuthenticationError, ValidationError, PerplexityError
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 import sys
 
 # Request logger storage / 请求日志存储
@@ -30,6 +32,39 @@ def log_to_file(content: str):
 
 app = FastAPI(title="Perplexity API Bridge")
 bridge = ProtocolBridge()
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Log validation errors."""
+    error_msg = f"Validation Error for {request.method} {request.url.path}: {exc.errors()}"
+    print(f"ERROR: {error_msg}")
+    log_to_file(f"[VALIDATION ERROR] {error_msg}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": exc.body},
+    )
+
+def _extract_session_id(request: Request) -> str:
+    """
+    Extract session ID from request headers. /
+    从请求头中提取会话标识。
+    优先查找包含 'api-key' 的头（如 x-api-key、api-key 等），
+    其次检查 Authorization Bearer，最后回退到 x-session-id。
+    """
+    # 1. 查找任何包含 'api-key' 的请求头 / Find any header containing 'api-key'
+    for key, value in request.headers.items():
+        if "api-key" in key.lower() and value:
+            return value
+    
+    # 2. 检查 Authorization Bearer / Check Authorization Bearer
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+        if token:
+            return token
+    
+    # 3. 回退到 x-session-id / Fallback to x-session-id
+    return request.headers.get("x-session-id", "")
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -78,9 +113,25 @@ async def log_requests(request: Request, call_next):
             protocol = "Gemini"
         
         # 提取模型名称 / Extract model name
-        model_name = ""
+        original_model = ""
         if isinstance(payload, dict):
-            model_name = payload.get("model", "")
+            original_model = payload.get("model", "")
+        # Gemini: 从 URL 路径提取模型 / Extract model from URL path for Gemini
+        if not original_model and "/v1beta/models/" in path:
+            model_part = path.split("/v1beta/models/")[-1]
+            original_model = model_part.split(":")[0] if ":" in model_part else model_part
+        
+        # 获取完整模型映射 / Get full model mapping (alias + Perplexity mapping)
+        mapped_model = ""
+        display_model = original_model
+        if original_model:
+            try:
+                mapped = bridge._map_model(original_model)
+                mapped_model = mapped.get("model", "")
+                if mapped_model and mapped_model.lower() != original_model.lower():
+                    display_model = f"{original_model} → {mapped_model}"
+            except:
+                pass
         
         log_entry = {
             "_id": request_id,
@@ -88,7 +139,9 @@ async def log_requests(request: Request, call_next):
             "method": method,
             "path": path,
             "protocol": protocol,
-            "model": model_name,
+            "model": display_model,
+            "original_model": original_model,
+            "mapped_model": mapped_model or original_model,
             "input": json.dumps(payload, indent=2, ensure_ascii=False) if isinstance(payload, dict) else str(payload),
             "output": "[Streaming...]",
             "status": response.status_code,
@@ -140,6 +193,14 @@ async def log_requests(request: Request, call_next):
                                     if log_entry["output"] == "[Streaming...]":
                                         log_entry["output"] = ""
                                     log_entry["output"] += data['delta'].get('text', '')
+                                # Gemini style
+                                elif 'candidates' in data and data['candidates']:
+                                    parts = data['candidates'][0].get('content', {}).get('parts', [])
+                                    for part in parts:
+                                        if 'text' in part and part['text']:
+                                            if log_entry["output"] == "[Streaming...]":
+                                                log_entry["output"] = ""
+                                            log_entry["output"] += part['text']
                             except:
                                 pass
                 yield chunk
@@ -187,12 +248,40 @@ async def log_requests(request: Request, call_next):
 async def root():
     return {"message": "Perplexity API Bridge is running on port 8046"}
 
+@app.get("/v1/models")
+async def list_models():
+    """OpenAI compatible models listing. / OpenAI 兼容的模型列表端点。"""
+    base_models = [
+        "default", "turbo", "pro", "reasoning",
+        "gpt-4o", "gpt-4o-mini", "gpt-4.5-preview",
+        "claude-3.5-sonnet", "claude-3.5-haiku",
+        "gemini-2.0-flash", "gemini-2.0-flash-thinking",
+        "sonar", "sonar-pro", "sonar-reasoning",
+    ]
+    # 合并别名模型 / Merge alias models
+    aliases = bridge.get_model_aliases()
+    all_models = list(set(base_models + list(aliases.keys()) + list(aliases.values())))
+    all_models.sort()
+    
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": m,
+                "object": "model",
+                "created": 0,
+                "owned_by": "perplexity-bridge",
+            }
+            for m in all_models
+        ],
+    }
+
 # --- OpenAI Endpoint ---
 
 @app.post("/v1/chat/completions")
 async def openai_chat_completions(request: OpenAIChatCompletionRequest, raw_request: Request):
     """OpenAI compatible chat completions endpoint. / OpenAI 兼容的聊天补全端点。"""
-    session_id = raw_request.headers.get("x-api-key") or raw_request.headers.get("x-session-id")
+    session_id = _extract_session_id(raw_request)
     try:
         result = await bridge.handle_openai(request, session_id=session_id)
         if isinstance(result, dict):
@@ -215,7 +304,7 @@ async def openai_chat_completions(request: OpenAIChatCompletionRequest, raw_requ
 @app.post("/v1/responses")
 async def openai_responses(request: OpenAIResponsesRequest, raw_request: Request):
     """OpenAI Responses API compatible endpoint. / OpenAI Responses API 兼容的端点。"""
-    session_id = raw_request.headers.get("x-api-key") or raw_request.headers.get("x-session-id")
+    session_id = _extract_session_id(raw_request)
     try:
         result = await bridge.handle_openai_responses(request, session_id=session_id)
         if isinstance(result, dict):
@@ -238,7 +327,7 @@ async def openai_responses(request: OpenAIResponsesRequest, raw_request: Request
 @app.post("/v1/messages")
 async def claude_messages(request: ClaudeMessageRequest, raw_request: Request):
     """Claude compatible messages endpoint. / Claude 兼容的消息端点。"""
-    session_id = raw_request.headers.get("x-api-key") or raw_request.headers.get("x-session-id")
+    session_id = _extract_session_id(raw_request)
     try:
         result = await bridge.handle_claude(request, session_id=session_id)
         if isinstance(result, dict):
@@ -256,12 +345,41 @@ async def claude_messages(request: ClaudeMessageRequest, raw_request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/v1/messages/count_tokens")
+async def count_tokens(request: Request):
+    """
+    Dummy format for token counting to satisfy Claude clients.
+    由于 Perplexity 没有提供 token 计算接口，这里进行简单的估算 (1 token ≈ 4 字符)
+    以避免客户端报错。
+    """
+    try:
+        body = await request.json()
+        messages = body.get("messages", [])
+        system = body.get("system", "")
+        
+        # Simple estimation: 4 chars = 1 token
+        text_len = len(str(system))
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                text_len += len(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and "text" in part:
+                        text_len += len(part.get("text", ""))
+        
+        token_count = max(1, text_len // 4)
+        return {"input_tokens": token_count}
+    except Exception as e:
+        print(f"Token count error: {e}")
+        return {"input_tokens": 0}
+
 # --- Gemini Endpoint ---
 
 @app.post("/v1beta/models/{model}:generateContent")
 async def gemini_generate_content(model: str, request: GeminiGenerateContentRequest, raw_request: Request):
     """Gemini compatible generateContent endpoint. / Gemini 兼容的生成内容端点。"""
-    session_id = raw_request.headers.get("x-api-key") or raw_request.headers.get("x-session-id")
+    session_id = _extract_session_id(raw_request)
     try:
         # Note: Gemini streaming uses a different endpoint :streamGenerateContent
         result = await bridge.handle_gemini(model, request, session_id=session_id)
@@ -278,10 +396,22 @@ async def gemini_generate_content(model: str, request: GeminiGenerateContentRequ
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1beta/models/{model}:streamGenerateContent")
-async def gemini_stream_generate_content(model: str, request: GeminiGenerateContentRequest):
+async def gemini_stream_generate_content(model: str, request: GeminiGenerateContentRequest, raw_request: Request):
     """Gemini compatible streamGenerateContent endpoint. / Gemini 兼容的流式生成内容端点。"""
-    # Streaming for Gemini not fully implemented in bridge yet
-    raise HTTPException(status_code=501, detail="Gemini streaming not yet implemented")
+    session_id = _extract_session_id(raw_request)
+    try:
+        result = await bridge.handle_gemini_stream(model, request, session_id=session_id)
+        return StreamingResponse(result, media_type="text/event-stream")
+    except RateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except AuthenticationError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except PerplexityError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
@@ -387,6 +517,20 @@ async def delete_threads_endpoint(request: Request):
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result
+
+# --- Model Alias Config Endpoints ---
+
+@app.get("/api/model-aliases")
+async def get_model_aliases():
+    """Get current model alias mappings. / 获取当前模型别名配置。"""
+    return bridge.get_model_aliases()
+
+@app.post("/api/model-aliases")
+async def update_model_aliases(request: Request):
+    """Update model alias mappings. / 更新模型别名配置。"""
+    body = await request.json()
+    updated = bridge.update_model_aliases(body)
+    return {"status": "success", "aliases": updated}
 
 def start():
     """Start the server. / 启动服务器。"""

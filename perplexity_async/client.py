@@ -52,6 +52,7 @@ class Client(AsyncMixin):
             headers=DEFAULT_HEADERS.copy(),
             cookies=cookies,
             impersonate="chrome124",
+            timeout=300,  # 5分钟超时，防止 reasoning 模式思考时间过长导致连接中断
         )
         self.own = bool(cookies)
         self.copilot = 0 if not cookies else float("inf")

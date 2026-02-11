@@ -131,10 +131,27 @@ class ProtocolBridge:
     # 会话存储上限 / Maximum number of sessions to cache
     MAX_SESSIONS = 100
 
+    # 默认模型别名 / Default model aliases
+    DEFAULT_MODEL_ALIASES = {
+        "gemini-3": "gemini-3.0-pro",
+        "gemini-3-flash": "gemini-3.0-flash",
+        "gpt-5": "gpt-5.2-thinking",
+        "gpt-4": "gpt-5.2",
+        "claude-4": "claude-4.5-sonnet-thinking",
+        "claude-3": "claude-4.5-sonnet",
+        "grok-4": "grok-4.1",
+        "kimi-k2": "kimi-k2.5",
+    }
+
+    # 模型别名配置文件路径 / Model alias config file path
+    ALIAS_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_aliases.json")
+
     def __init__(self):
         self.client = None
         # 会话存储：session_id -> {"backend_uuid": ..., "attachments": [...]} / Session store for follow_up
         self.sessions: Dict[str, dict] = {}
+        # 加载模型别名配置 / Load model alias config
+        self.model_aliases = self._load_model_aliases()
         # ⚠️  Configuration: Add your cookies here / 在此处添加您的 Cookie
         # You can get these from your browser after logging in to perplexity.ai
         self.cookies = {
@@ -339,62 +356,130 @@ class ProtocolBridge:
             flush_logs()
             return {"error": str(e)}
 
+    def _load_model_aliases(self) -> Dict[str, str]:
+        """
+        Load model aliases from config file, create with defaults if not exists. /
+        从配置文件加载模型别名，不存在则使用默认值创建。
+        """
+        if os.path.exists(self.ALIAS_CONFIG_FILE):
+            try:
+                with open(self.ALIAS_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    aliases = json.load(f)
+                bridge_logger.info(f"[ModelAlias] 已加载 {len(aliases)} 个模型别名 / Loaded {len(aliases)} model aliases")
+                flush_logs()
+                return aliases
+            except Exception as e:
+                bridge_logger.error(f"[ModelAlias] 加载配置失败，使用默认值 / Failed to load config, using defaults: {e}")
+                flush_logs()
+        
+        # 使用默认值并保存 / Use defaults and save
+        self._save_model_aliases(self.DEFAULT_MODEL_ALIASES)
+        return dict(self.DEFAULT_MODEL_ALIASES)
+
+    def _save_model_aliases(self, aliases: Dict[str, str]) -> None:
+        """Save model aliases to config file. / 将模型别名保存到配置文件。"""
+        try:
+            with open(self.ALIAS_CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(aliases, f, indent=2, ensure_ascii=False)
+            bridge_logger.info(f"[ModelAlias] 已保存 {len(aliases)} 个模型别名 / Saved {len(aliases)} model aliases")
+            flush_logs()
+        except Exception as e:
+            bridge_logger.error(f"[ModelAlias] 保存配置失败 / Failed to save config: {e}")
+            flush_logs()
+
+    def update_model_aliases(self, aliases: Dict[str, str]) -> Dict[str, str]:
+        """
+        Update model aliases and save to file. / 更新模型别名并保存到文件。
+        Returns the updated aliases.
+        """
+        self.model_aliases = aliases
+        self._save_model_aliases(aliases)
+        return self.model_aliases
+
+    def get_model_aliases(self) -> Dict[str, str]:
+        """Get current model aliases. / 获取当前模型别名。"""
+        return self.model_aliases
+
+    def _resolve_model_alias(self, model_name: str) -> str:
+        """
+        Resolve model alias to real model name. /
+        将模型别名解析为实际模型名称。
+        采用最长前缀匹配优先策略。
+        """
+        original = model_name
+        model_lower = model_name.lower()
+        
+        # 按别名长度降序排序，优先匹配更精确的前缀 / Sort by length desc for longest prefix match first
+        sorted_aliases = sorted(self.model_aliases.items(), key=lambda x: len(x[0]), reverse=True)
+        
+        for alias, target in sorted_aliases:
+            if model_lower.startswith(alias.lower()):
+                bridge_logger.info(f"[ModelAlias] 前缀匹配: '{original}' (prefix: '{alias}') -> '{target}'")
+                flush_logs()
+                return target
+        
+        return model_name
+
     def _map_model(self, model_name: str) -> Dict[str, Any]:
         """
         Map external model names to Perplexity modes and models. /
         将外部模型名称映射到 Perplexity 的模式和模型。
         """
+        # 先进行别名解析 / Resolve alias first
+        model_name = self._resolve_model_alias(model_name)
         model_name = model_name.lower()
         
-        # Default settings / 默认设置
+        # 默认使用 reasoning 模式 / Default to reasoning mode
         config = {
-            "mode": "auto",
+            "mode": "reasoning",
             "model": None,
         }
 
-        if "thinking" in model_name or "reasoning" in model_name:
-            config["mode"] = "reasoning"
-            if "gpt-5" in model_name:
-                config["model"] = "gpt-5.2-thinking"
-            elif "claude-4.5" in model_name:
-                config["model"] = "claude-4.5-sonnet-thinking"
-            elif "gemini-3.0-flash" in model_name:
-                config["model"] = "gemini-3.0-flash-thinking"
-            elif "gemini-3.0-pro" in model_name:
-                config["model"] = "gemini-3.0-pro"
-            elif "grok-4.1" in model_name:
-                config["model"] = "grok-4.1-reasoning"
-            elif "kimi-k2.5" in model_name:
-                config["model"] = "kimi-k2.5-thinking"
-            else:
-                config["model"] = None # Default reasoning
-        elif "gpt-4" in model_name or "gpt-5" in model_name:
-            config["mode"] = "pro"
-            config["model"] = "gpt-5.2"
-        elif "claude-4.6-opus" in model_name:
-            config["mode"] = "pro"
-            config["model"] = "claude-4.6-opus"
-        elif "claude-3" in model_name or "claude-4" in model_name:
-            config["mode"] = "pro"
-            config["model"] = "claude-4.5-sonnet"
-        elif "gemini-3.0-flash" in model_name:
-            config["mode"] = "pro"
-            config["model"] = "gemini-3.0-flash"
-        elif "gemini" in model_name:
-            config["mode"] = "pro"
-            config["model"] = "gemini-3.0-pro"
-        elif "grok-4.1" in model_name:
-            config["mode"] = "pro"
-            config["model"] = "grok-4.1"
-        elif "kimi-k2.5" in model_name:
-            config["mode"] = "pro"
-            config["model"] = "kimi-k2.5"
+        # 精确模式判断优先 / Explicit mode keywords first
+        if "perplexity-auto" in model_name or model_name == "auto":
+            config["mode"] = "auto"
+            config["model"] = None
         elif "sonar" in model_name:
             config["mode"] = "pro"
             config["model"] = "sonar"
-        elif "perplexity-auto" in model_name or "auto" in model_name:
-            config["mode"] = "auto"
-            config["model"] = None
+        # GPT 系列 / GPT series
+        elif "gpt-5" in model_name:
+            if "thinking" in model_name:
+                config["mode"] = "reasoning"
+            else:
+                config["mode"] = "reasoning"
+            config["model"] = "gpt-5.2-thinking"
+        elif "gpt-4" in model_name:
+            config["mode"] = "reasoning"
+            config["model"] = "gpt-5.2-thinking"
+        # Claude 系列 / Claude series
+        elif "claude-4.6-opus" in model_name:
+            config["mode"] = "reasoning"
+            config["model"] = "claude-4.6-opus"
+        elif "claude" in model_name:
+            if "thinking" in model_name:
+                config["model"] = "claude-4.5-sonnet-thinking"
+            else:
+                config["model"] = "claude-4.5-sonnet-thinking"
+            config["mode"] = "reasoning"
+        # Gemini 系列 / Gemini series
+        elif "gemini-3.0-flash" in model_name or "gemini-3-flash" in model_name:
+            config["mode"] = "reasoning"
+            if "thinking" in model_name:
+                config["model"] = "gemini-3.0-flash-thinking"
+            else:
+                config["model"] = "gemini-3.0-flash-thinking"
+        elif "gemini" in model_name:
+            config["mode"] = "reasoning"
+            config["model"] = "gemini-3.0-pro"
+        # Grok 系列 / Grok series
+        elif "grok" in model_name:
+            config["mode"] = "reasoning"
+            config["model"] = "grok-4.1-reasoning"
+        # Kimi 系列 / Kimi series
+        elif "kimi" in model_name:
+            config["mode"] = "reasoning"
+            config["model"] = "kimi-k2.5-thinking"
         
         return config
 
@@ -404,6 +489,15 @@ class ProtocolBridge:
         for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
+            # 处理多部分内容数组 / Handle multi-part content array
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                    elif isinstance(part, dict) and part.get("type") == "input_text":
+                        text_parts.append(part.get("text", ""))
+                content = "\n".join(text_parts)
             prompt += f"{role.capitalize()}: {content}\n\n"
         return prompt.strip()
 
@@ -411,7 +505,16 @@ class ProtocolBridge:
         """Flatten Claude messages and system prompt. / 将 Claude 消息和系统提示词展平。"""
         prompt = ""
         if request.system:
-            prompt += f"System: {request.system}\n\n"
+            system_content = request.system
+            if isinstance(system_content, list):
+                # Handle system prompt as list of blocks
+                text_parts = []
+                for part in system_content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                system_content = "\n".join(text_parts)
+            
+            prompt += f"System: {system_content}\n\n"
         
         for msg in request.messages:
             role = msg.role
@@ -506,6 +609,11 @@ class ProtocolBridge:
             # 记录 Perplexity 原始流式响应块
             log_perplexity_response(chunk, is_chunk=True)
             
+            # 思考/搜索阶段发送 keep-alive 防止客户端超时
+            # Send keep-alive comment during thinking/searching phase
+            if "answer" not in chunk:
+                yield ": keepalive\n\n"
+                continue
             if "answer" in chunk:
                 full_answer = chunk['answer']
                 delta_content = full_answer[len(last_sent_text):]
@@ -694,6 +802,11 @@ class ProtocolBridge:
             last_chunk = chunk
             log_perplexity_response(chunk, is_chunk=True)
             
+            # 思考/搜索阶段发送 keep-alive / Send keep-alive during thinking phase
+            if "answer" not in chunk:
+                yield ": keepalive\n\n"
+                continue
+
             if "answer" in chunk:
                 full_answer = chunk['answer']
                 delta_content = full_answer[len(last_sent_text):]
@@ -779,6 +892,10 @@ class ProtocolBridge:
         last_chunk = None
         async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True, follow_up=follow_up):
             last_chunk = chunk
+            # 思考/搜索阶段发送 keep-alive / Send keep-alive during thinking phase
+            if "answer" not in chunk:
+                yield ": keepalive\n\n"
+                continue
             if "answer" in chunk:
                 full_answer = chunk['answer']
                 delta_content = full_answer[len(last_sent_text):]
@@ -833,3 +950,90 @@ class ProtocolBridge:
                 "totalTokenCount": (len(prompt) + len(resp.get("answer", ""))) // 4
             }
         }
+
+    async def handle_gemini_stream(self, model: str, request: GeminiGenerateContentRequest, session_id: str = None) -> AsyncGenerator[str, None]:
+        """
+        Handle Gemini streaming generateContent request. /
+        处理 Gemini 流式生成请求。
+        """
+        await self.ensure_client()
+        follow_up = self._get_follow_up(session_id)
+
+        config = self._map_model(model)
+        prompt = self._format_gemini_prompt(request)
+
+        log_request_params("Gemini Stream", {
+            "model": model,
+            "mapped_config": config,
+            "prompt_length": len(prompt),
+            "session_id": session_id,
+        })
+        log_model_mapping(model, config)
+        log_formatted_prompt(prompt)
+        log_perplexity_request(config["mode"], config.get("model"), True)
+
+        return self._stream_gemini(model, prompt, config, session_id=session_id, follow_up=follow_up)
+
+    async def _stream_gemini(self, model: str, prompt: str, config: Dict[str, Any], session_id: str = None, follow_up: dict = None) -> AsyncGenerator[str, None]:
+        """
+        Generate Gemini SSE streaming chunks. /
+        生成 Gemini SSE 流式响应块。
+        """
+        bridge_logger.info(f"[Gemini Stream] 开始流式响应 / Starting stream")
+        flush_logs()
+
+        last_sent_text = ""
+        chunk_count = 0
+        last_chunk = None
+
+        async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True, follow_up=follow_up):
+            last_chunk = chunk
+            log_perplexity_response(chunk, is_chunk=True)
+
+            # 思考/搜索阶段发送 keep-alive / Send keep-alive during thinking phase
+            if "answer" not in chunk:
+                yield ": keepalive\n\n"
+                continue
+
+            if "answer" in chunk:
+                full_answer = chunk["answer"]
+                delta_content = full_answer[len(last_sent_text):]
+
+                if delta_content:
+                    gemini_chunk = {
+                        "candidates": [{
+                            "content": {
+                                "role": "model",
+                                "parts": [{"text": delta_content}]
+                            },
+                            "index": 0,
+                        }],
+                    }
+                    last_sent_text = full_answer
+                    chunk_count += 1
+                    yield f"data: {json.dumps(gemini_chunk)}\n\n"
+
+        # 保存会话 / Save session
+        if last_chunk:
+            self._save_session(session_id, last_chunk)
+
+        # 发送最终块 / Send final chunk with finishReason
+        final_chunk = {
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [{"text": ""}]
+                },
+                "finishReason": "STOP",
+                "index": 0,
+            }],
+            "usageMetadata": {
+                "promptTokenCount": len(prompt) // 4,
+                "candidatesTokenCount": len(last_sent_text) // 4,
+                "totalTokenCount": (len(prompt) + len(last_sent_text)) // 4
+            }
+        }
+        yield f"data: {json.dumps(final_chunk)}\n\n"
+
+        bridge_logger.info(f"[Gemini Stream] 流式响应完成 / Stream completed, total_chunks={chunk_count}")
+        flush_logs()
