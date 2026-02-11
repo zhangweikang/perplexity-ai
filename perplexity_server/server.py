@@ -2,7 +2,7 @@ import uvicorn
 import json
 import time
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -50,15 +50,15 @@ async def log_requests(request: Request, call_next):
 
     if not is_admin:
         print(f"\n--- [REQUEST] {method} {path} ---")
-        if payload:
-            print(f"Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
         
         # Log to file for debugging / 记录到文件用于调试
-        if path in ["/v1/chat/completions", "/v1/responses"]:
-            log_to_file(f"\n{'='*60}")
-            log_to_file(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] REQUEST: {method} {path}")
-            log_to_file(f"{'='*60}")
-            log_to_file(json.dumps(payload, indent=2, ensure_ascii=False) if payload else "No payload")
+        log_to_file(f"\n{'='*60}")
+        log_to_file(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] REQUEST: {method} {path}")
+        log_to_file(f"{'='*60}")
+        log_to_file("Headers:")
+        for k, v in request.headers.items():
+            log_to_file(f"  {k}: {v}")
+        log_to_file(json.dumps(payload, indent=2, ensure_ascii=False) if payload else "No payload")
     
     # Process request / 处理请求
     request_id = f"{time.time()}-{id(request)}"
@@ -190,10 +190,11 @@ async def root():
 # --- OpenAI Endpoint ---
 
 @app.post("/v1/chat/completions")
-async def openai_chat_completions(request: OpenAIChatCompletionRequest):
+async def openai_chat_completions(request: OpenAIChatCompletionRequest, raw_request: Request):
     """OpenAI compatible chat completions endpoint. / OpenAI 兼容的聊天补全端点。"""
+    session_id = raw_request.headers.get("x-api-key") or raw_request.headers.get("x-session-id")
     try:
-        result = await bridge.handle_openai(request)
+        result = await bridge.handle_openai(request, session_id=session_id)
         if isinstance(result, dict):
             return result
         else:
@@ -212,10 +213,11 @@ async def openai_chat_completions(request: OpenAIChatCompletionRequest):
 # --- OpenAI Responses API Endpoint ---
 
 @app.post("/v1/responses")
-async def openai_responses(request: OpenAIResponsesRequest):
+async def openai_responses(request: OpenAIResponsesRequest, raw_request: Request):
     """OpenAI Responses API compatible endpoint. / OpenAI Responses API 兼容的端点。"""
+    session_id = raw_request.headers.get("x-api-key") or raw_request.headers.get("x-session-id")
     try:
-        result = await bridge.handle_openai_responses(request)
+        result = await bridge.handle_openai_responses(request, session_id=session_id)
         if isinstance(result, dict):
             return result
         else:
@@ -234,10 +236,11 @@ async def openai_responses(request: OpenAIResponsesRequest):
 # --- Claude Endpoint ---
 
 @app.post("/v1/messages")
-async def claude_messages(request: ClaudeMessageRequest):
+async def claude_messages(request: ClaudeMessageRequest, raw_request: Request):
     """Claude compatible messages endpoint. / Claude 兼容的消息端点。"""
+    session_id = raw_request.headers.get("x-api-key") or raw_request.headers.get("x-session-id")
     try:
-        result = await bridge.handle_claude(request)
+        result = await bridge.handle_claude(request, session_id=session_id)
         if isinstance(result, dict):
             return result
         else:
@@ -256,11 +259,12 @@ async def claude_messages(request: ClaudeMessageRequest):
 # --- Gemini Endpoint ---
 
 @app.post("/v1beta/models/{model}:generateContent")
-async def gemini_generate_content(model: str, request: GeminiGenerateContentRequest):
+async def gemini_generate_content(model: str, request: GeminiGenerateContentRequest, raw_request: Request):
     """Gemini compatible generateContent endpoint. / Gemini 兼容的生成内容端点。"""
+    session_id = raw_request.headers.get("x-api-key") or raw_request.headers.get("x-session-id")
     try:
         # Note: Gemini streaming uses a different endpoint :streamGenerateContent
-        result = await bridge.handle_gemini(model, request)
+        result = await bridge.handle_gemini(model, request, session_id=session_id)
         return result
     except RateLimitError as e:
         raise HTTPException(status_code=429, detail=str(e))
@@ -312,6 +316,77 @@ async def capture_cookies():
         return {"status": "success", "cookies": cookies}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@app.get("/api/sessions")
+async def get_sessions():
+    """Get active sessions. / 获取活跃会话列表。"""
+    sessions = []
+    for sid, data in bridge.sessions.items():
+        sessions.append({
+            "session_id": sid,
+            "backend_uuid": data.get("backend_uuid", ""),
+            "attachments_count": len(data.get("attachments", [])),
+            "slug": data.get("slug", ""),
+        })
+    return sessions
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a specific session. / 删除指定会话。"""
+    if session_id in bridge.sessions:
+        del bridge.sessions[session_id]
+        return {"status": "success"}
+    raise HTTPException(status_code=404, detail="Session not found")
+
+@app.delete("/api/sessions")
+async def clear_sessions():
+    """Clear all sessions. / 清除所有会话。"""
+    bridge.sessions.clear()
+    return {"status": "success", "cleared": True}
+
+@app.post("/api/threads")
+async def list_threads(request: Request):
+    """Fetch Perplexity thread history. / 获取 Perplexity 历史会话。"""
+    body = await request.json()
+    limit = body.get("limit", 20)
+    offset = body.get("offset", 0)
+    search_term = body.get("search_term", "")
+    result = await bridge.list_threads(limit=limit, offset=offset, search_term=search_term)
+    return result
+
+@app.post("/api/sessions/bind")
+async def bind_session(request: Request):
+    """Bind a thread slug to a session_id. / 将线程 slug 绑定到 session_id。"""
+    body = await request.json()
+    session_id = body.get("session_id")
+    slug = body.get("slug")
+    backend_uuid = body.get("backend_uuid", "")
+    if not session_id or not slug:
+        raise HTTPException(status_code=400, detail="session_id and slug are required")
+    bridge.bind_session(session_id, slug, backend_uuid)
+    return {"status": "success", "session_id": session_id, "slug": slug}
+
+@app.get("/api/threads/{slug:path}")
+async def get_thread_detail(slug: str):
+    """Get thread details by slug. / 通过 slug 获取对话详情。"""
+    result = await bridge.get_thread_detail(slug)
+    if "error" in result:
+        raise HTTPException(status_code=502, detail=result["error"])
+    if not result:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return result
+
+@app.post("/api/threads/delete")
+async def delete_threads_endpoint(request: Request):
+    """Delete threads by UUIDs. / 通过 UUID 列表删除对话。"""
+    body = await request.json()
+    uuids = body.get("uuids", [])
+    if not uuids:
+        raise HTTPException(status_code=400, detail="uuids list is required")
+    result = await bridge.delete_threads(uuids)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
 
 def start():
     """Start the server. / 启动服务器。"""

@@ -13,8 +13,12 @@ from perplexity.config import (
     ENDPOINT_AUTH_SIGNIN,
     ENDPOINT_SSE_ASK,
     ENDPOINT_UPLOAD_URL,
+    ENDPOINT_THREAD_LIST,
+    ENDPOINT_THREAD_DETAIL,
+    ENDPOINT_THREAD_DELETE,
     MODEL_MAPPINGS,
 )
+from perplexity.exceptions import AuthenticationError
 from .emailnator import Emailnator
 
 
@@ -47,7 +51,7 @@ class Client(AsyncMixin):
         self.session = requests.AsyncSession(
             headers=DEFAULT_HEADERS.copy(),
             cookies=cookies,
-            impersonate="chrome",
+            impersonate="chrome124",
         )
         self.own = bool(cookies)
         self.copilot = 0 if not cookies else float("inf")
@@ -216,16 +220,40 @@ class Client(AsyncMixin):
             },
         }
 
-        resp = await self.session.post(ENDPOINT_SSE_ASK, json=json_data, stream=True)
+        # Headers for API request to bypass Cloudflare
+        api_headers = {
+            "accept": "text/event-stream",
+            "content-type": "application/json",
+            "origin": "https://www.perplexity.ai",
+            "referer": "https://www.perplexity.ai/",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+        }
+
+        resp = await self.session.post(ENDPOINT_SSE_ASK, json=json_data, headers=api_headers, stream=True)
+        if not resp.ok:
+            print(f"Error: SSE request failed with status {resp.status_code}")
+            print(f"Response: {resp.text}")
+            if resp.status_code == 403:
+                raise AuthenticationError("会话已失效,请重新设置会话信息")
+            resp.raise_for_status()
+
         chunks = []
 
         async def stream_response(resp):
+            print("Starting to stream response...")
             async for chunk in resp.aiter_lines(delimiter=b"\r\n\r\n"):
                 content = chunk.decode("utf-8")
+                # print(f"Raw chunk: {repr(content[:100])}...")
 
-                if content.startswith("event: message\r\n"):
+                if content.startswith("event: message"):
                     try:
-                        content_json = json.loads(content[len("event: message\r\ndata: ") :])
+                        # robust parsing for data: prefix
+                        data_start = content.find("data: ")
+                        if data_start == -1:
+                            continue
+                        content_json = json.loads(content[data_start + 6 :])
 
                         # Parse the nested 'text' field if it exists / 如果存在嵌套的 'text' 字段则进行解析
                         if "text" in content_json and content_json["text"]:
@@ -291,3 +319,126 @@ class Client(AsyncMixin):
 
             elif content.startswith("event: end_of_stream\r\n"):
                 return chunks[-1] if chunks else {}
+
+    async def get_threads(self, limit=20, offset=0, search_term=""):
+        """
+        Fetches a list of threads from Perplexity AI.
+
+        Parameters:
+        - limit: Number of threads to fetch (default 20)
+        - offset: Offset for pagination (default 0)
+        - search_term: Search term to filter threads (default empty)
+        """
+        url = f"{ENDPOINT_THREAD_LIST}?version=2.18&source=default"
+        payload = {"limit": limit, "offset": offset, "search_term": search_term}
+        api_headers = {
+            "accept": "application/json, text/plain, */*",
+            "content-type": "application/json",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "origin": "https://www.perplexity.ai",
+            "referer": "https://www.perplexity.ai/",
+        }
+        resp = await self.session.post(url, json=payload, headers=api_headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_thread_details_by_slug(self, slug, query_params=None):
+        """
+        Fetches thread details using the provided slug from the new endpoint.
+
+        Parameters:
+        - slug: The thread slug (string)
+        - query_params: Optional dict of query parameters to override defaults
+        """
+        from urllib.parse import urlencode
+
+        default_params = {
+            "with_parent_info": "true",
+            "with_schematized_response": "true",
+            "version": "2.18",
+            "source": "default",
+            "limit": 100,
+            "offset": 0,
+            "from_first": "true",
+            "supported_block_use_cases": [
+                "answer_modes",
+                "media_items",
+                "knowledge_cards",
+                "inline_entity_cards",
+                "place_widgets",
+                "finance_widgets",
+                "sports_widgets",
+                "shopping_widgets",
+                "jobs_widgets",
+                "search_result_widgets",
+                "clarification_responses",
+                "inline_images",
+                "inline_assets",
+                "inline_finance_widgets",
+                "placeholder_cards",
+                "diff_blocks",
+                "inline_knowledge_cards",
+            ],
+        }
+        # Merge user params
+        params = dict(default_params)
+        if query_params:
+            for k, v in query_params.items():
+                params[k] = v
+        # Handle list params for supported_block_use_cases
+        query_items = []
+        for k, v in params.items():
+            if isinstance(v, list):
+                for item in v:
+                    query_items.append((k, item))
+            else:
+                query_items.append((k, v))
+        query_string = urlencode(query_items)
+        url = f"{ENDPOINT_THREAD_DETAIL}/{slug}?{query_string}"
+        api_headers = {
+            "accept": "application/json, text/plain, */*",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "x-requested-with": "XMLHttpRequest",
+            "origin": "https://www.perplexity.ai",
+            "referer": "https://www.perplexity.ai/",
+        }
+        resp = await self.session.get(url, headers=api_headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def delete_threads(self, uuids: list):
+        """
+        Delete multiple threads by iterating through their UUIDs. /
+        通过循环遍历调用单条删除接口来批量删除对话。
+        """
+        url = f"{ENDPOINT_THREAD_DELETE}?version=2.18&source=default"
+        api_headers = {
+            "accept": "application/json, text/plain, */*",
+            "content-type": "application/json",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "origin": "https://www.perplexity.ai",
+            "referer": "https://www.perplexity.ai/",
+        }
+
+        results = []
+        for uuid in uuids:
+            try:
+                # Perplexity new delete API requires single entry_uuid and read_write_token
+                payload = {"entry_uuid": uuid, "read_write_token": ""}
+                resp = await self.session.delete(url, json=payload, headers=api_headers)
+                resp.raise_for_status()
+                try:
+                    data = resp.json()
+                except:
+                    data = {}
+                results.append({"uuid": uuid, "status": "success", "data": data})
+            except Exception as e:
+                results.append({"uuid": uuid, "status": "error", "error": str(e)})
+        
+        return {"results": results}

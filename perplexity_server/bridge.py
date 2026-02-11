@@ -128,8 +128,13 @@ class ProtocolBridge:
     各种 API 协议与 Perplexity 客户端之间的桥梁。
     """
 
+    # 会话存储上限 / Maximum number of sessions to cache
+    MAX_SESSIONS = 100
+
     def __init__(self):
         self.client = None
+        # 会话存储：session_id -> {"backend_uuid": ..., "attachments": [...]} / Session store for follow_up
+        self.sessions: Dict[str, dict] = {}
         # ⚠️  Configuration: Add your cookies here / 在此处添加您的 Cookie
         # You can get these from your browser after logging in to perplexity.ai
         self.cookies = {
@@ -229,9 +234,110 @@ class ProtocolBridge:
     async def ensure_client(self):
         """Ensure the Perplexity client is initialized. / 确保 Perplexity 客户端已初始化。"""
         if self.client is None:
-            # Use cookies if provided, otherwise client runs in anonymous mode
-            # 如果提供了 Cookie 则使用，否则客户端以匿名模式运行
-            self.client = await perplexity_async.Client(cookies=self.cookies if any(self.cookies.values()) else {})
+            from perplexity_async import Client
+            self.client = await Client(cookies=self.cookies)
+            bridge_logger.info("[Init] Perplexity client initialized / Perplexity 客户端已初始化")
+
+    def _get_follow_up(self, session_id: str = None) -> dict:
+        """
+        Get follow_up data for an existing session. /
+        获取会话的 follow_up 数据以支持追问。
+        """
+        if session_id and session_id in self.sessions:
+            follow_up = self.sessions[session_id]
+            bridge_logger.info(f"[Session] 使用已有会话 / Reusing session: {session_id}, backend_uuid={follow_up.get('backend_uuid')}")
+            flush_logs()
+            return follow_up
+        return None
+
+    def _save_session(self, session_id: str, response_data: dict):
+        """
+        Save session data from a Perplexity response for future follow-up. /
+        从 Perplexity 响应中保存会话数据，供后续追问使用。
+        """
+        if not session_id:
+            return
+        backend_uuid = response_data.get("backend_uuid")
+        if backend_uuid:
+            # 保留已有的 slug 映射 / Preserve existing slug mapping
+            existing = self.sessions.get(session_id, {})
+            self.sessions[session_id] = {
+                "backend_uuid": backend_uuid,
+                "attachments": response_data.get("attachments", []),
+                "slug": existing.get("slug", response_data.get("slug", "")),
+            }
+            # 限制会话存储数量 / Limit session store size
+            if len(self.sessions) > self.MAX_SESSIONS:
+                oldest_key = next(iter(self.sessions))
+                del self.sessions[oldest_key]
+            bridge_logger.info(f"[Session] 已保存会话 / Saved session: {session_id}, backend_uuid={backend_uuid}")
+            flush_logs()
+
+    async def list_threads(self, limit: int = 20, offset: int = 0, search_term: str = "") -> dict:
+        """
+        Fetch historical conversation threads from Perplexity API. /
+        从 Perplexity API 获取历史对话列表。委托给 client.get_threads()。
+        """
+        await self.ensure_client()
+        try:
+            result = await self.client.get_threads(limit=limit, offset=offset, search_term=search_term)
+            # 统一返回格式 / Normalize response format
+            if isinstance(result, list):
+                result = {"threads": result}
+            threads = result.get("threads", [])
+            bridge_logger.info(f"[Threads] 获取历史会话列表 / Fetched threads: offset={offset}, count={len(threads)}")
+            flush_logs()
+            return result
+        except Exception as e:
+            bridge_logger.error(f"[Threads] 获取历史会话失败 / Failed to fetch threads: {e}")
+            flush_logs()
+            return {"threads": []}
+
+    def bind_session(self, session_id: str, slug: str, backend_uuid: str = ""):
+        """
+        Bind a thread slug to a session_id. /
+        将历史会话的 slug 绑定到 session_id。
+        """
+        existing = self.sessions.get(session_id, {})
+        self.sessions[session_id] = {
+            "backend_uuid": existing.get("backend_uuid", backend_uuid),
+            "attachments": existing.get("attachments", []),
+            "slug": slug,
+        }
+        bridge_logger.info(f"[Session] 绑定会话 / Bound session: {session_id} -> slug={slug}")
+        flush_logs()
+
+    async def get_thread_detail(self, slug: str) -> dict:
+        """
+        Get thread details by slug. /
+        通过 slug 获取对话详情。
+        """
+        await self.ensure_client()
+        try:
+            result = await self.client.get_thread_details_by_slug(slug)
+            bridge_logger.info(f"[Threads] 获取对话详情 / Fetched thread detail: slug={slug}")
+            flush_logs()
+            return result
+        except Exception as e:
+            bridge_logger.error(f"[Threads] 获取对话详情失败 / Failed to fetch thread detail: {e}")
+            flush_logs()
+            return {"error": str(e)}
+
+    async def delete_threads(self, uuids: list) -> dict:
+        """
+        Delete threads by UUIDs. /
+        通过 UUID 列表删除对话。
+        """
+        await self.ensure_client()
+        try:
+            result = await self.client.delete_threads(uuids)
+            bridge_logger.info(f"[Threads] 删除对话 / Deleted threads: count={len(uuids)}")
+            flush_logs()
+            return result
+        except Exception as e:
+            bridge_logger.error(f"[Threads] 删除对话失败 / Failed to delete threads: {e}")
+            flush_logs()
+            return {"error": str(e)}
 
     def _map_model(self, model_name: str) -> Dict[str, Any]:
         """
@@ -329,8 +435,9 @@ class ProtocolBridge:
 
     # --- OpenAI Translation ---
 
-    async def handle_openai(self, request: OpenAIChatCompletionRequest) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
+    async def handle_openai(self, request: OpenAIChatCompletionRequest, session_id: str = None) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
         await self.ensure_client()
+        follow_up = self._get_follow_up(session_id)
         
         # 记录请求参数 / Log request parameters
         request_data = {
@@ -350,11 +457,12 @@ class ProtocolBridge:
         
         if request.stream:
             log_perplexity_request(config["mode"], config.get("model"), True)
-            return self._stream_openai(request.model, prompt, config)
+            return self._stream_openai(request.model, prompt, config, session_id=session_id, follow_up=follow_up)
         
         log_perplexity_request(config["mode"], config.get("model"), False)
-        resp = await self.client.search(prompt, mode=config["mode"], model=config["model"])
+        resp = await self.client.search(prompt, mode=config["mode"], model=config["model"], follow_up=follow_up)
         log_perplexity_response(resp)
+        self._save_session(session_id, resp)
         
         openai_response = {
             "id": f"chatcmpl-{uuid4().hex[:12]}",
@@ -380,7 +488,7 @@ class ProtocolBridge:
         log_openai_response(openai_response)
         return openai_response
 
-    async def _stream_openai(self, model: str, prompt: str, config: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def _stream_openai(self, model: str, prompt: str, config: Dict[str, Any], session_id: str = None, follow_up: dict = None) -> AsyncGenerator[str, None]:
         chat_id = f"chatcmpl-{int(time.time())}"
         created = int(time.time())
         
@@ -391,8 +499,10 @@ class ProtocolBridge:
         last_sent_text = ""
         role_sent = False
         chunk_count = 0
+        last_chunk = None
 
-        async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True):
+        async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True, follow_up=follow_up):
+            last_chunk = chunk
             # 记录 Perplexity 原始流式响应块
             log_perplexity_response(chunk, is_chunk=True)
             
@@ -428,6 +538,9 @@ class ProtocolBridge:
                     
                     yield f"data: {json.dumps(openai_chunk)}\n\n"
         
+        # 保存会话信息用于追问 / Save session for follow-up
+        if last_chunk:
+            self._save_session(session_id, last_chunk)
         bridge_logger.info(f"[OpenAI Stream] 流式响应完成 / Stream completed, total_chunks={chunk_count}")
         bridge_logger.info(f"[OpenAI Stream] 完整响应内容 / Full response:\n{last_sent_text[:500]}{'...[截断]' if len(last_sent_text) > 500 else ''}")
         
@@ -488,12 +601,13 @@ class ProtocolBridge:
         
         return prompt.strip()
 
-    async def handle_openai_responses(self, request: OpenAIResponsesRequest) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
+    async def handle_openai_responses(self, request: OpenAIResponsesRequest, session_id: str = None) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
         """
         Handle OpenAI Responses API requests. /
         处理 OpenAI Responses API 请求。
         """
         await self.ensure_client()
+        follow_up = self._get_follow_up(session_id)
         
         # 记录请求参数 / Log request parameters
         request_data = {
@@ -514,11 +628,12 @@ class ProtocolBridge:
         
         if request.stream:
             log_perplexity_request(config["mode"], config.get("model"), True)
-            return self._stream_openai_responses(request.model, prompt, config)
+            return self._stream_openai_responses(request.model, prompt, config, session_id=session_id, follow_up=follow_up)
         
         log_perplexity_request(config["mode"], config.get("model"), False)
-        resp = await self.client.search(prompt, mode=config["mode"], model=config["model"])
+        resp = await self.client.search(prompt, mode=config["mode"], model=config["model"], follow_up=follow_up)
         log_perplexity_response(resp)
+        self._save_session(session_id, resp)
         
         response_id = f"resp_{uuid4().hex[:12]}"
         output_text = resp.get("answer", "")
@@ -553,7 +668,7 @@ class ProtocolBridge:
         log_openai_response(openai_response)
         return openai_response
 
-    async def _stream_openai_responses(self, model: str, prompt: str, config: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def _stream_openai_responses(self, model: str, prompt: str, config: Dict[str, Any], session_id: str = None, follow_up: dict = None) -> AsyncGenerator[str, None]:
         """
         Stream OpenAI Responses API format. /
         流式输出 OpenAI Responses API 格式。
@@ -573,8 +688,10 @@ class ProtocolBridge:
         
         last_sent_text = ""
         chunk_count = 0
+        last_chunk = None
         
-        async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True):
+        async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True, follow_up=follow_up):
+            last_chunk = chunk
             log_perplexity_response(chunk, is_chunk=True)
             
             if "answer" in chunk:
@@ -594,6 +711,9 @@ class ProtocolBridge:
                     yield f"event: response.output_text.delta\ndata: {json.dumps(delta_event)}\n\n"
                     last_sent_text = full_answer
         
+        # 保存会话信息用于追问 / Save session for follow-up
+        if last_chunk:
+            self._save_session(session_id, last_chunk)
         bridge_logger.info(f"[OpenAI Responses Stream] 流式响应完成 / Stream completed, total_chunks={chunk_count}")
         flush_logs()
         
@@ -605,16 +725,18 @@ class ProtocolBridge:
 
     # --- Claude Translation ---
 
-    async def handle_claude(self, request: ClaudeMessageRequest) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
+    async def handle_claude(self, request: ClaudeMessageRequest, session_id: str = None) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
         await self.ensure_client()
+        follow_up = self._get_follow_up(session_id)
         
         config = self._map_model(request.model)
         prompt = self._format_claude_prompt(request)
         
         if request.stream:
-            return self._stream_claude(request.model, prompt, config)
+            return self._stream_claude(request.model, prompt, config, session_id=session_id, follow_up=follow_up)
         
-        resp = await self.client.search(prompt, mode=config["mode"], model=config["model"])
+        resp = await self.client.search(prompt, mode=config["mode"], model=config["model"], follow_up=follow_up)
+        self._save_session(session_id, resp)
         
         return {
             "id": f"msg_{int(time.time())}",
@@ -630,7 +752,7 @@ class ProtocolBridge:
             }
         }
 
-    async def _stream_claude(self, model: str, prompt: str, config: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def _stream_claude(self, model: str, prompt: str, config: Dict[str, Any], session_id: str = None, follow_up: dict = None) -> AsyncGenerator[str, None]:
         msg_id = f"msg_{int(time.time())}"
         input_tokens = len(prompt) // 4
         
@@ -654,7 +776,9 @@ class ProtocolBridge:
         
         full_answer = ""
         last_sent_text = ""
-        async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True):
+        last_chunk = None
+        async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True, follow_up=follow_up):
+            last_chunk = chunk
             if "answer" in chunk:
                 full_answer = chunk['answer']
                 delta_content = full_answer[len(last_sent_text):]
@@ -667,6 +791,9 @@ class ProtocolBridge:
                     })}\n\n"
                     last_sent_text = full_answer
 
+        # 保存会话信息用于追问 / Save session for follow-up
+        if last_chunk:
+            self._save_session(session_id, last_chunk)
         yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': 0})}\n\n"
         yield f"event: message_delta\ndata: {json.dumps({
             'type': 'message_delta',
@@ -677,8 +804,9 @@ class ProtocolBridge:
 
     # --- Gemini Translation ---
 
-    async def handle_gemini(self, model: str, request: GeminiGenerateContentRequest) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
+    async def handle_gemini(self, model: str, request: GeminiGenerateContentRequest, session_id: str = None) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
         await self.ensure_client()
+        follow_up = self._get_follow_up(session_id)
         
         config = self._map_model(model)
         prompt = self._format_gemini_prompt(request)
@@ -686,7 +814,8 @@ class ProtocolBridge:
         # Gemini streaming usually uses a different endpoint, but we'll handle it here if possible.
         # For now, let's just implement the non-streaming one.
         
-        resp = await self.client.search(prompt, mode=config["mode"], model=config["model"])
+        resp = await self.client.search(prompt, mode=config["mode"], model=config["model"], follow_up=follow_up)
+        self._save_session(session_id, resp)
         
         return {
             "candidates": [{

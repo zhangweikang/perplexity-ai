@@ -1,359 +1,1222 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>API Bridge Admin - Perplexity</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        :root {
-            --primary-color: #007AFF;
-            --bg-color: #F5F5F7;
-            --card-bg: #FFFFFF;
-            --text-color: #1D1D1F;
-            --text-secondary: #86868B;
-            --border-color: #D2D2D7;
-            --success-color: #34C759;
-            --error-color: #FF3B30;
+      :root {
+        --primary-color: #007aff;
+        --bg-color: #f5f5f7;
+        --card-bg: #ffffff;
+        --text-color: #1d1d1f;
+        --text-secondary: #86868b;
+        --border-color: #d2d2d7;
+        --success-color: #34c759;
+        --error-color: #ff3b30;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        margin: 0;
+        padding: 0;
+        line-height: 1.5;
+        overflow-x: hidden;
+      }
+
+      header {
+        background-color: rgba(255, 255, 255, 0.7);
+        backdrop-filter: saturate(180%) blur(20px);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        border-bottom: 1px solid var(--border-color);
+        padding: 0.8rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .header-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .container {
+        max-width: 1000px;
+        margin: 2rem auto;
+        padding: 0 1.5rem;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 2rem;
+        background: #e8e8ed;
+        padding: 4px;
+        border-radius: 12px;
+        width: fit-content;
+      }
+
+      .tab {
+        padding: 0.5rem 1.25rem;
+        border-radius: 9px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .tab.active {
+        background: var(--card-bg);
+        color: var(--text-color);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      }
+
+      .panel {
+        display: none;
+        background: var(--card-bg);
+        border-radius: 16px;
+        padding: 2rem;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03);
+        border: 1px solid var(--border-color);
+        animation: fadeIn 0.3s ease-out;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
         }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            padding: 0;
-            line-height: 1.5;
-            overflow-x: hidden;
+        to {
+          opacity: 1;
+          transform: translateY(0);
         }
+      }
 
-        header {
-            background-color: rgba(255, 255, 255, 0.7);
-            backdrop-filter: saturate(180%) blur(20px);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            border-bottom: 1px solid var(--border-color);
-            padding: 0.8rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+      .panel.active {
+        display: block;
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+      }
+
+      h2 {
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin: 0;
+      }
+
+      button {
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        padding: 0.6rem 1.2rem;
+        border-radius: 10px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.85rem;
+      }
+
+      button:hover {
+        transform: scale(1.02);
+        opacity: 0.9;
+      }
+      button:active {
+        transform: scale(0.98);
+      }
+      button.secondary {
+        background-color: #f2f2f7;
+        color: var(--text-color);
+      }
+      button.refresh {
+        background: none;
+        color: var(--primary-color);
+        font-weight: 600;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+      }
+      th {
+        text-align: left;
+        color: var(--text-secondary);
+        font-weight: 500;
+        padding: 1rem;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.8rem;
+        text-transform: uppercase;
+      }
+      td {
+        padding: 1rem;
+        border-bottom: 1px solid #f5f5f7;
+        font-size: 0.9rem;
+      }
+      tr.log-row:hover {
+        background: #f9f9fb;
+      }
+
+      .status-badge {
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .status-200 {
+        background: #e1f8eb;
+        color: #2d6a4f;
+      }
+      .status-err {
+        background: #ffe5e5;
+        color: #d72c2c;
+      }
+
+      .cookie-list {
+        display: grid;
+        gap: 0.75rem;
+      }
+      .cookie-item {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        align-items: center;
+        padding: 0.75rem;
+        background: #f9f9fb;
+        border-radius: 10px;
+        border: 1px solid #f0f0f3;
+      }
+      .cookie-label {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      input {
+        border: 1px solid var(--border-color);
+        padding: 0.5rem 0.75rem;
+        border-radius: 8px;
+        font-family: inherit;
+        font-size: 0.85rem;
+        width: 100%;
+        box-sizing: border-box;
+        transition: border-color 0.2s;
+      }
+      input:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        background: white;
+      }
+
+      /* Modal Blur Overlay */
+      .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(15px);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      .modal-overlay.active {
+        display: flex;
+        opacity: 1;
+      }
+
+      .modal {
+        background: rgba(255, 255, 255, 0.9);
+        width: 90%;
+        max-width: 800px;
+        max-height: 80vh;
+        border-radius: 24px;
+        padding: 2.5rem;
+        box-shadow: 0 30px 60px rgba(0, 0, 0, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        display: flex;
+        flex-direction: column;
+        transform: scale(0.95);
+        transition: transform 0.3s;
+      }
+      .modal-overlay.active .modal {
+        transform: scale(1);
+      }
+
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 1.5rem;
+      }
+      .modal-close {
+        cursor: pointer;
+        font-size: 1.5rem;
+        color: var(--text-secondary);
+        padding: 5px;
+      }
+      .modal-body {
+        overflow-y: auto;
+        flex: 1;
+      }
+
+      pre {
+        background: #1d1d1f;
+        color: #f5f5f7;
+        padding: 1.25rem;
+        border-radius: 12px;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.8rem;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-all;
+        margin: 1rem 0;
+      }
+
+      .streaming-indicator {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background: var(--primary-color);
+        border-radius: 50%;
+        margin-right: 5px;
+        animation: pulse 1s infinite;
+      }
+      @keyframes pulse {
+        0% {
+          opacity: 0.3;
         }
-
-        .header-title { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.02em; }
-
-        .container {
-            max-width: 1000px;
-            margin: 2rem auto;
-            padding: 0 1.5rem;
+        50% {
+          opacity: 1;
         }
-
-        .tabs {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 2rem;
-            background: #E8E8ED;
-            padding: 4px;
-            border-radius: 12px;
-            width: fit-content;
+        100% {
+          opacity: 0.3;
         }
+      }
+      /* ... existing styles ... */
+      #cookieJsonInput {
+        width: 100%;
+        height: 300px;
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 0.9rem;
+        padding: 1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        background: #f9f9fb;
+        color: var(--text-color);
+        resize: vertical;
+        line-height: 1.5;
+      }
+      #cookieJsonInput:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        background: white;
+        box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1);
+      }
 
-        .tab {
-            padding: 0.5rem 1.25rem;
-            border-radius: 9px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-        }
+      /* Session table styles */
+      .session-empty {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+      .session-empty .empty-icon {
+        font-size: 2.5rem;
+        margin-bottom: 0.75rem;
+        opacity: 0.4;
+      }
+      .session-id-cell {
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.8rem;
+        color: var(--primary-color);
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .uuid-cell {
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        max-width: 280px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .badge-count {
+        display: inline-block;
+        background: #e8e8ed;
+        color: var(--text-color);
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      button.danger {
+        background-color: var(--error-color);
+        color: white;
+      }
+      button.danger-outline {
+        background: none;
+        color: var(--error-color);
+        border: 1px solid var(--error-color);
+        font-weight: 600;
+      }
+      button.danger-outline:hover {
+        background: var(--error-color);
+        color: white;
+      }
+      .session-stats {
+        display: flex;
+        gap: 1.5rem;
+        margin-bottom: 1.25rem;
+      }
+      .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+      .stat-value {
+        font-weight: 600;
+        color: var(--text-color);
+      }
 
-        .tab.active {
-            background: var(--card-bg);
-            color: var(--text-color);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-
-        .panel {
-            display: none;
-            background: var(--card-bg);
-            border-radius: 16px;
-            padding: 2rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.03);
-            border: 1px solid var(--border-color);
-            animation: fadeIn 0.3s ease-out;
-        }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-        .panel.active { display: block; }
-
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1.5rem;
-        }
-
-        h2 { font-size: 1.2rem; font-weight: 600; margin: 0; }
-
-        button {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 0.6rem 1.2rem;
-            border-radius: 10px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 0.85rem;
-        }
-
-        button:hover { transform: scale(1.02); opacity: 0.9; }
-        button:active { transform: scale(0.98); }
-        button.secondary { background-color: #F2F2F7; color: var(--text-color); }
-        button.refresh { background: none; color: var(--primary-color); font-weight: 600; }
-
-        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-        th { text-align: left; color: var(--text-secondary); font-weight: 500; padding: 1rem; border-bottom: 1px solid var(--border-color); font-size: 0.8rem; text-transform: uppercase; }
-        td { padding: 1rem; border-bottom: 1px solid #F5F5F7; font-size: 0.9rem; }
-        tr.log-row:hover { background: #F9F9FB; }
-
-        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
-        .status-200 { background: #E1F8EB; color: #2D6A4F; }
-        .status-err { background: #FFE5E5; color: #D72C2C; }
-
-        .cookie-list { display: grid; gap: 0.75rem; }
-        .cookie-item { display: grid; grid-template-columns: 240px 1fr; align-items: center; padding: 0.75rem; background: #F9F9FB; border-radius: 10px; border: 1px solid #F0F0F3; }
-        .cookie-label { font-size: 0.8rem; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        input { border: 1px solid var(--border-color); padding: 0.5rem 0.75rem; border-radius: 8px; font-family: inherit; font-size: 0.85rem; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
-        input:focus { outline: none; border-color: var(--primary-color); background: white; }
-
-        /* Modal Blur Overlay */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.1);
-            backdrop-filter: blur(15px);
-            z-index: 1000;
-            align-items: center; justify-content: center;
-            opacity: 0; transition: opacity 0.3s;
-        }
-        .modal-overlay.active { display: flex; opacity: 1; }
-        
-        .modal {
-            background: rgba(255, 255, 255, 0.9);
-            width: 90%; max-width: 800px; max-height: 80vh;
-            border-radius: 24px; padding: 2.5rem;
-            box-shadow: 0 30px 60px rgba(0,0,0,0.12);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            display: flex; flex-direction: column;
-            transform: scale(0.95); transition: transform 0.3s;
-        }
-        .modal-overlay.active .modal { transform: scale(1); }
-
-        .modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; }
-        .modal-close { cursor: pointer; font-size: 1.5rem; color: var(--text-secondary); padding: 5px; }
-        .modal-body { overflow-y: auto; flex: 1; }
-        
-        pre {
-            background: #1D1D1F; color: #F5F5F7; padding: 1.25rem; border-radius: 12px;
-            font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.8rem;
-            line-height: 1.6; white-space: pre-wrap; word-break: break-all;
-            margin: 1rem 0;
-        }
-
-        .streaming-indicator {
-            display: inline-block;
-            width: 8px; height: 8px; background: var(--primary-color);
-            border-radius: 50%; margin-right: 5px;
-            animation: pulse 1s infinite;
-        }
-        @keyframes pulse { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+      /* History threads styles */
+      .threads-container {
+        max-height: 480px;
+        overflow-y: auto;
+        border: 1px solid #e5e5ea;
+        border-radius: 12px;
+        background: white;
+      }
+      .thread-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #f0f0f5;
+        transition: background 0.15s;
+        cursor: default;
+      }
+      .thread-item:last-child { border-bottom: none; }
+      .thread-item:hover { background: #f8f8fc; }
+      .thread-title {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-color);
+        max-width: 380px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .thread-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-shrink: 0;
+      }
+      .thread-slug {
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .thread-date {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+      }
+      .thread-bind-btn, .thread-action-btn {
+        padding: 3px 10px;
+        font-size: 0.72rem;
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .thread-action-btn.detail { background: #34c759; }
+      .thread-action-btn.delete { background: var(--error-color); }
+      .thread-bind-btn:hover, .thread-action-btn:hover { opacity: 0.85; }
+      .thread-checkbox {
+        width: 16px; height: 16px; cursor: pointer;
+        accent-color: var(--primary-color);
+        flex-shrink: 0; margin-right: 0.5rem;
+      }
+      .thread-batch-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0.5rem 1rem; background: #f0f0f5; border-radius: 8px;
+        margin-bottom: 0.75rem; font-size: 0.82rem; color: var(--text-secondary);
+      }
+      .thread-batch-bar .batch-actions { display: flex; gap: 0.5rem; align-items: center; }
+      .threads-loading {
+        text-align: center;
+        padding: 1rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+      }
+      .threads-search {
+        display: flex;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+      }
+      .threads-search input {
+        flex: 1;
+        padding: 8px 14px;
+        border: 1px solid #e5e5ea;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .threads-search input:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+      }
+      .section-divider {
+        border: none;
+        border-top: 1px solid #e5e5ea;
+        margin: 2rem 0;
+      }
+      .slug-cell {
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .thread-detail-modal .modal { max-width: 700px; }
+      .thread-detail-msgs {
+        max-height: 500px; overflow-y: auto;
+        display: flex; flex-direction: column; gap: 1rem;
+        padding: 0.5rem 0;
+      }
+      .thread-msg {
+        padding: 0.75rem 1rem; border-radius: 10px;
+        font-size: 0.85rem; line-height: 1.5;
+        word-break: break-word; white-space: pre-wrap;
+      }
+      .thread-msg.user {
+        background: var(--primary-color); color: white;
+        align-self: flex-end; max-width: 85%; border-bottom-right-radius: 2px;
+      }
+      .thread-msg.assistant {
+        background: #f0f0f5; color: var(--text-color);
+        align-self: flex-start; max-width: 85%; border-bottom-left-radius: 2px;
+      }
+      .thread-msg .msg-role {
+        font-size: 0.7rem; font-weight: 600; opacity: 0.7;
+        margin-bottom: 4px; text-transform: uppercase;
+      }
     </style>
-</head>
-<body>
-
-<header>
-    <div class="header-title">Perplexity API Bridge</div>
-    <div style="display: flex; align-items: center; gap: 1.5rem;">
-        <span id="serverStatus" style="color: var(--success-color); font-size: 0.8rem; font-weight: 600;">● 服务器运行中</span>
+  </head>
+  <body>
+    <header>
+      <div class="header-title">Perplexity API Bridge</div>
+      <div style="display: flex; align-items: center; gap: 1.5rem">
+        <span
+          id="serverStatus"
+          style="
+            color: var(--success-color);
+            font-size: 0.8rem;
+            font-weight: 600;
+          "
+          >● 服务器运行中</span
+        >
         <button id="refreshLogsTop" class="refresh">手动刷新</button>
-    </div>
-</header>
+      </div>
+    </header>
 
-<div class="container">
-    <div class="tabs">
+    <div class="container">
+      <div class="tabs">
         <div class="tab active" data-target="cookiesPanel">Cookie 管理</div>
+        <div class="tab" data-target="sessionsPanel">会话管理</div>
         <div class="tab" data-target="logsPanel">请求历史</div>
-    </div>
+      </div>
 
-    <!-- Cookies Panel -->
-    <div id="cookiesPanel" class="panel active">
+      <!-- Cookies Panel -->
+      <div id="cookiesPanel" class="panel active">
         <div class="section-header">
-            <h2>设置 Cookies</h2>
-            <div style="display: flex; gap: 0.75rem;">
-                <button id="captureCookies" class="secondary">自动获取 (新标签页)</button>
-                <button id="saveCookies">保存并更新</button>
+          <div>
+            <h2>Cookies 配置 (JSON)</h2>
+            <div
+              style="
+                font-size: 0.85rem;
+                color: var(--text-secondary);
+                margin-top: 4px;
+              "
+            >
+              请直接粘贴完整的 JSON
+              对象。支持从浏览器开发者工具或插件导出的格式。
             </div>
+          </div>
+          <div style="display: flex; gap: 0.75rem">
+            <button id="formatCookies" class="secondary" title="将单引号替换为双引号，修复 Python 字典格式">格式化</button>
+            <button id="captureCookies" class="secondary">
+              自动获取 (新标签页)
+            </button>
+            <button id="saveCookies">确认并更新</button>
+          </div>
         </div>
-        <div class="cookie-list" id="cookieList"></div>
-    </div>
+        <textarea
+          id="cookieJsonInput"
+          placeholder='{ "pplx.visitor-id": "...", ... }'
+        ></textarea>
+      </div>
 
-    <!-- Logs Panel -->
-    <div id="logsPanel" class="panel">
+      <!-- Sessions Panel -->
+      <div id="sessionsPanel" class="panel">
         <div class="section-header">
-            <h2>业务请求记录</h2>
-            <div style="font-size: 0.8rem; color: var(--text-secondary);">每秒自动同步最新状态</div>
+          <div>
+            <h2>活跃会话</h2>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">
+              管理通过 X-Session-Id 建立的 Perplexity 追问会话
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button id="refreshSessions" class="secondary">刷新</button>
+            <button id="clearAllSessions" class="danger-outline">清除全部</button>
+          </div>
+        </div>
+        <div class="session-stats">
+          <div class="stat-item">活跃数: <span class="stat-value" id="sessionCount">0</span></div>
+          <div class="stat-item">上限: <span class="stat-value">100</span></div>
         </div>
         <div style="overflow-x: auto;">
-            <table>
-                <thead>
-                    <tr>
-                        <th>时间</th>
-                        <th>协议</th>
-                        <th>模型</th>
-                        <th>状态</th>
-                        <th>耗时</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody id="logsList"></tbody>
-            </table>
+          <table>
+            <thead>
+              <tr>
+                <th>Session ID</th>
+                <th>Backend UUID</th>
+                <th>Slug</th>
+                <th>附件数</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="sessionsList"></tbody>
+          </table>
         </div>
-    </div>
-</div>
 
-<!-- Modal -->
-<div class="modal-overlay" id="detailModalOverlay">
-    <div class="modal">
-        <div class="modal-header">
-            <div>
-                <h2 id="modalTitle">请求详情</h2>
-                <div id="modalSub" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px;"></div>
+        <hr class="section-divider">
+
+        <!-- History Threads -->
+        <div class="section-header">
+          <div>
+            <h2>历史会话</h2>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">
+              浏览 Perplexity 账号的历史对话，支持查看详情、绑定和批量删除
             </div>
-            <div class="modal-close">&times;</div>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button id="refreshThreads" class="secondary">刷新</button>
+          </div>
+        </div>
+        <div class="threads-search">
+          <input type="text" id="threadSearchInput" placeholder="搜索历史会话...">
+          <button id="threadSearchBtn" class="secondary">搜索</button>
+        </div>
+        <div class="thread-batch-bar" id="threadBatchBar" style="display:none;">
+          <div>
+            <label style="cursor:pointer;"><input type="checkbox" id="threadSelectAll" class="thread-checkbox" style="margin-right:4px;">全选当前页</label>
+            <span id="threadSelectedCount" style="margin-left:8px;">已选 0 项</span>
+          </div>
+          <div class="batch-actions">
+            <button class="danger-outline" style="padding:3px 12px;font-size:0.78rem;" id="deleteSelectedThreads">批量删除</button>
+          </div>
+        </div>
+        <div class="threads-container" id="threadsContainer">
+          <div class="threads-loading">加载中...</div>
+        </div>
+      </div>
+
+      <!-- Logs Panel -->
+      <div id="logsPanel" class="panel">
+        <div class="section-header">
+          <h2>业务请求记录</h2>
+          <div style="font-size: 0.8rem; color: var(--text-secondary)">
+            每秒自动同步最新状态
+          </div>
+        </div>
+        <div style="overflow-x: auto">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>协议</th>
+                <th>模型</th>
+                <th>状态</th>
+                <th>耗时</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="logsList"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="detailModalOverlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h2 id="modalTitle">请求详情</h2>
+            <div
+              id="modalSub"
+              style="
+                font-size: 0.8rem;
+                color: var(--text-secondary);
+                margin-top: 4px;
+              "
+            ></div>
+          </div>
+          <div class="modal-close">&times;</div>
         </div>
         <div class="modal-body">
-            <h4 style="margin: 1.5rem 0 0.5rem 0;">Payload (输入内容):</h4>
-            <pre id="modalInput"></pre>
-            <h4 style="margin: 1.5rem 0 0.5rem 0;">Response (响应内容):</h4>
-            <pre id="modalOutput"></pre>
+          <h4 style="margin: 1.5rem 0 0.5rem 0">Payload (输入内容):</h4>
+          <pre id="modalInput"></pre>
+          <h4 style="margin: 1.5rem 0 0.5rem 0">Response (响应内容):</h4>
+          <pre id="modalOutput"></pre>
         </div>
+      </div>
     </div>
-</div>
 
-<script>
-    let logsCache = [];
+    <!-- Thread Detail Modal -->
+    <div class="modal-overlay thread-detail-modal" id="threadDetailOverlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h2 id="threadDetailTitle">会话详情</h2>
+            <div id="threadDetailSub" style="font-size:0.8rem;color:var(--text-secondary);margin-top:4px;"></div>
+          </div>
+          <div class="modal-close">&times;</div>
+        </div>
+        <div class="modal-body">
+          <div class="thread-detail-msgs" id="threadDetailMsgs"></div>
+        </div>
+      </div>
+    </div>
 
-    function loadCookies() {
-        $.get("/api/cookies", function(data) {
-            const list = $("#cookieList");
-            list.empty();
-            // Highlight main cookies
-            const mainKeys = ['pplx.visitor-id', '__Secure-next-auth.session-token', 'pplx.search-mode'];
-            const allKeys = Object.keys(data).sort((a,b) => {
-                const ai = mainKeys.indexOf(a), bi = mainKeys.indexOf(b);
-                if (ai !== -1 && bi !== -1) return ai - bi;
-                return ai !== -1 ? -1 : (bi !== -1 ? 1 : a.localeCompare(b));
+    <script>
+      let logsCache = [];
+
+      function loadCookies() {
+        $.get("/api/cookies", function (data) {
+          // Sort keys specifically? Or just show as is?
+          // JSON.stringify will keep insertion order mostly, but let's sort for readability
+          const mainKeys = [
+            "pplx.visitor-id",
+            "__Secure-next-auth.session-token",
+            "pplx.search-mode",
+          ];
+          const orderedData = {};
+
+          // Put main keys first
+          mainKeys.forEach((k) => {
+            if (data[k]) orderedData[k] = data[k];
+          });
+
+          // Then other keys sorted alphabetically
+          Object.keys(data)
+            .sort()
+            .forEach((k) => {
+              if (!mainKeys.includes(k)) orderedData[k] = data[k];
             });
 
-            allKeys.forEach(key => {
-                list.append(`
-                    <div class="cookie-item">
-                        <div class="cookie-label" title="${key}">${key}</div>
-                        <input type="text" class="cookie-input" data-key="${key}" value="${data[key]}">
-                    </div>
-                `);
-            });
+          $("#cookieJsonInput").val(JSON.stringify(orderedData, null, 4));
         });
-    }
+      }
 
-    function loadLogs() {
-        $.get("/api/logs", function(data) {
-            logsCache = data;
-            const list = $("#logsList");
-            const currentCount = list.find('tr').length;
-            list.empty();
-            data.forEach((log, index) => {
-                const statusClass = log.status === 200 ? "status-200" : "status-err";
-                const isStreaming = log.output === "[Streaming...]";
-                const modelName = log.model || '-';
-                list.append(`
+      function loadLogs() {
+        $.get("/api/logs", function (data) {
+          logsCache = data;
+          const list = $("#logsList");
+          const currentCount = list.find("tr").length;
+          list.empty();
+          data.forEach((log, index) => {
+            const statusClass =
+              log.status === 200 ? "status-200" : "status-err";
+            const isStreaming = log.output === "[Streaming...]";
+            const modelName = log.model || "-";
+            list.append(`
                     <tr class="log-row" onclick="showDetail(${index})" style="cursor: pointer;">
-                        <td><small>${log.time.split(' ')[1]}</small></td>
+                        <td><small>${log.time.split(" ")[1]}</small></td>
                         <td><strong>${log.protocol}</strong></td>
                         <td><small style="color: var(--text-secondary)">${modelName}</small></td>
                         <td><span class="status-badge ${statusClass}">${log.status}</span></td>
                         <td><span style="color: var(--text-secondary)">${log.latency}ms</span></td>
                         <td>
                             <button class="secondary" style="padding: 2px 10px; font-size: 0.75rem;">
-                                ${isStreaming ? '<span class="streaming-indicator"></span>详情' : '详情'}
+                                ${isStreaming ? '<span class="streaming-indicator"></span>详情' : "详情"}
                             </button>
                         </td>
                     </tr>
                 `);
-            });
+          });
         });
-    }
+      }
 
-    function showDetail(index) {
+      function showDetail(index) {
         const log = logsCache[index];
         $("#modalTitle").text(`${log.protocol} 协议详情`);
         $("#modalSub").text(`${log.method} ${log.path} at ${log.time}`);
-        
+
         let out = log.output;
-        try { out = JSON.stringify(JSON.parse(out), null, 2); } catch(e) {}
-        
+        try {
+          out = JSON.stringify(JSON.parse(out), null, 2);
+        } catch (e) {}
+
         $("#modalInput").text(log.input);
         $("#modalOutput").text(out);
         $("#detailModalOverlay").addClass("active");
-    }
+      }
 
-    $(function() {
-        $(".modal-close, #detailModalOverlay").click(function(e) {
-            if (e.target === this) $("#detailModalOverlay").removeClass("active");
+      $(function () {
+        $(".modal-close, #detailModalOverlay, #threadDetailOverlay").click(function (e) {
+          if (e.target === this) {
+            $("#detailModalOverlay").removeClass("active");
+            $("#threadDetailOverlay").removeClass("active");
+          }
         });
 
-        $(".tab").click(function() {
-            $(".tab").removeClass("active"); $(this).addClass("active");
-            $(".panel").removeClass("active"); $("#" + $(this).data("target")).addClass("active");
-            if ($(this).data("target") === "logsPanel") loadLogs();
+        $(".tab").click(function () {
+          $(".tab").removeClass("active");
+          $(this).addClass("active");
+          $(".panel").removeClass("active");
+          $("#" + $(this).data("target")).addClass("active");
+          if ($(this).data("target") === "logsPanel") loadLogs();
+          if ($(this).data("target") === "sessionsPanel") { loadSessions(); loadThreads(true); }
         });
 
-        $("#saveCookies").click(function() {
-            const cookies = {};
-            $(".cookie-input").each(function() { cookies[$(this).data("key")] = $(this).val(); });
-            $.ajax({
-                url: "/api/cookies", type: 'POST', contentType: 'application/json',
-                data: JSON.stringify(cookies),
-                success: function() { alert("配置已保存，客户端已重新初始化。"); }
-            });
+        $("#formatCookies").click(function() {
+            const input = $("#cookieJsonInput");
+            let val = input.val();
+            // Replace single quotes with double quotes
+            val = val.replace(/'/g, '"');
+            // Basic fix for False/True/None (Python) to false/true/null (JSON)
+            val = val.replace(/: ?True/g, ': true').replace(/: ?False/g, ': false').replace(/: ?None/g, ': null');
+            input.val(val);
         });
 
-        $("#captureCookies").click(function() {
-            const btn = $(this);
-            btn.text("正在自动获取...").prop("disabled", true);
-            
-            // Step 1: Tell backend to start capture
-            $.post("/api/capture-cookies", function(data) {
-                btn.text("自动获取 (新标签页)").prop("disabled", false);
-                if (data.status === "error") {
-                    alert("错误: " + data.message);
-                } else {
-                    alert("Cookie 已成功从浏览器同步！");
-                    loadCookies();
-                }
-            });
+        $("#saveCookies").click(function () {
+          const jsonStr = $("#cookieJsonInput").val();
+          let cookies;
+          try {
+            cookies = JSON.parse(jsonStr);
+          } catch (e) {
+            alert("JSON 格式错误: " + e.message);
+            return;
+          }
+
+          $.ajax({
+            url: "/api/cookies",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify(cookies),
+            success: function () {
+              alert("配置已保存，客户端已重新初始化。");
+            },
+            error: function (xhr) {
+              alert("保存失败: " + xhr.responseText);
+            },
+          });
+        });
+
+        $("#captureCookies").click(function () {
+          const btn = $(this);
+          btn.text("正在自动获取...").prop("disabled", true);
+
+          $.post("/api/capture-cookies", function (data) {
+            btn.text("自动获取 (新标签页)").prop("disabled", false);
+            if (data.status === "error") {
+              alert("错误: " + data.message);
+            } else {
+              alert("Cookie 已成功从浏览器同步！");
+              loadCookies();
+            }
+          });
         });
 
         $("#refreshLogsTop").click(loadLogs);
-        
-        loadCookies();
-        setInterval(() => { if ($("#logsPanel").hasClass("active")) loadLogs(); }, 1500);
-    });
-</script>
+        $("#refreshSessions").click(loadSessions);
+        $("#clearAllSessions").click(function () {
+          if (!confirm("确定要清除所有会话吗？这将断开所有追问上下文。")) return;
+          $.ajax({
+            url: "/api/sessions",
+            type: "DELETE",
+            success: function () {
+              loadSessions();
+            },
+            error: function (xhr) {
+              alert("清除失败: " + xhr.responseText);
+            },
+          });
+        });
 
-</body>
+        loadCookies();
+        setInterval(() => {
+          if ($("#logsPanel").hasClass("active")) loadLogs();
+          if ($("#sessionsPanel").hasClass("active")) loadSessions();
+        }, 1500);
+      });
+
+      function loadSessions() {
+        $.get("/api/sessions", function (data) {
+          $("#sessionCount").text(data.length);
+          const list = $("#sessionsList");
+          list.empty();
+          if (data.length === 0) {
+            list.append(`
+              <tr><td colspan="5">
+                <div class="session-empty">
+                  <div class="empty-icon">💬</div>
+                  暂无活跃会话<br/>
+                  <small>当收到带有 X-Session-Id 请求头的请求后，会话将自动创建</small>
+                </div>
+              </td></tr>
+            `);
+            return;
+          }
+          data.forEach(function (s) {
+            const slugHtml = s.slug
+              ? `<span class="slug-cell" title="${s.slug}">${s.slug}</span>`
+              : `<span style="color:#ccc;">-</span>`;
+            list.append(`
+              <tr class="log-row">
+                <td class="session-id-cell" title="${s.session_id}">${s.session_id}</td>
+                <td class="uuid-cell" title="${s.backend_uuid}">${s.backend_uuid}</td>
+                <td>${slugHtml}</td>
+                <td><span class="badge-count">${s.attachments_count}</span></td>
+                <td>
+                  <button class="danger-outline" style="padding: 2px 10px; font-size: 0.75rem;"
+                    onclick="deleteSession('${s.session_id}')">删除</button>
+                </td>
+              </tr>
+            `);
+          });
+        });
+      }
+
+      function deleteSession(sessionId) {
+        $.ajax({
+          url: "/api/sessions/" + encodeURIComponent(sessionId),
+          type: "DELETE",
+          success: function () {
+            loadSessions();
+          },
+          error: function (xhr) {
+            alert("删除失败: " + xhr.responseText);
+          },
+        });
+      }
+
+      /* ===== History Threads ===== */
+      var threadOffset = 0;
+      var threadLoading = false;
+      var threadHasMore = true;
+      var threadSearchTerm = "";
+      const THREAD_PAGE_SIZE = 20;
+
+      function loadThreads(reset) {
+        if (threadLoading) return;
+        if (!reset && !threadHasMore) return;
+        threadLoading = true;
+        if (reset) {
+          threadOffset = 0;
+          threadHasMore = true;
+          $("#threadsContainer").html('<div class="threads-loading">加载中...</div>');
+        } else {
+          $("#threadsContainer .threads-loading").remove();
+          $("#threadsContainer").append('<div class="threads-loading">加载更多...</div>');
+        }
+        $.ajax({
+          url: "/api/threads",
+          type: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({ limit: THREAD_PAGE_SIZE, offset: threadOffset, search_term: threadSearchTerm }),
+          success: function (data) {
+            $("#threadsContainer .threads-loading").remove();
+            const threads = data.threads || [];
+            if (threads.length < THREAD_PAGE_SIZE) threadHasMore = false;
+            if (reset && threads.length === 0) {
+              $("#threadsContainer").html(`
+                <div class="session-empty">
+                  <div class="empty-icon">📝</div>
+                  暂无历史会话
+                </div>`);
+              threadLoading = false;
+              return;
+            }
+            threads.forEach(function (t) {
+              const title = t.title || t.slug || "无标题";
+              const date = t.created_at ? new Date(t.created_at).toLocaleString("zh-CN", {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+              const escapedSlug = (t.slug || "").replace(/'/g, "\\'");
+              const escapedTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+              const uuid = t.uuid || t.slug || "";
+              $("#threadsContainer").append(`
+                <div class="thread-item" data-uuid="${uuid}" data-slug="${t.slug || ''}">
+                  <input type="checkbox" class="thread-checkbox thread-select-cb" data-uuid="${uuid}">
+                  <div style="min-width:0;flex:1;">
+                    <div class="thread-title" title="${escapedTitle}">${escapedTitle}</div>
+                    <div class="thread-slug" title="${t.slug || ''}">${t.slug || ''}</div>
+                  </div>
+                  <div class="thread-meta">
+                    <span class="thread-date">${date}</span>
+                    <button class="thread-action-btn detail" onclick="showThreadDetail('${escapedSlug}')">详情</button>
+                    <button class="thread-bind-btn" onclick="bindThread('${escapedSlug}')">绑定</button>
+                    <button class="thread-action-btn delete" onclick="deleteThread('${uuid}')">删除</button>
+                  </div>
+                </div>`);
+            });
+            threadOffset += threads.length;
+            if (threadHasMore) {
+              $("#threadsContainer").append('<div class="threads-loading" style="color:#ccc;font-size:0.8rem;">&#8595; 继续滚动加载更多</div>');
+            }
+            threadLoading = false;
+            updateBatchBar();
+          },
+          error: function () {
+            $("#threadsContainer .threads-loading").remove();
+            $("#threadsContainer").append('<div class="threads-loading" style="color:var(--error-color);">加载失败，请重试</div>');
+            threadLoading = false;
+          }
+        });
+      }
+
+      function bindThread(slug) {
+        var sessionId = prompt("请输入要绑定的 X-Session-Id:");
+        if (!sessionId) return;
+        $.ajax({
+          url: "/api/sessions/bind",
+          type: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({ session_id: sessionId, slug: slug }),
+          success: function () {
+            alert("绑定成功: " + sessionId + " -> " + slug);
+            loadSessions();
+          },
+          error: function (xhr) {
+            alert("绑定失败: " + xhr.responseText);
+          }
+        });
+      }
+
+      /* --- Thread Detail Modal --- */
+      function showThreadDetail(slug) {
+        $("#threadDetailTitle").text("加载中...");
+        $("#threadDetailSub").text(slug);
+        $("#threadDetailMsgs").html('<div class="threads-loading">加载对话内容...</div>');
+        $("#threadDetailOverlay").addClass("active");
+        $.get("/api/threads/" + encodeURIComponent(slug), function (data) {
+          var title = data.title || slug;
+          $("#threadDetailTitle").text(title);
+          var msgs = $("#threadDetailMsgs");
+          msgs.empty();
+          var entries = data.entries || [];
+          var nodes = data.query_results || data.nodes || [];
+
+          if (entries.length > 0) {
+             entries.forEach(function(entry) {
+                 if (entry.query_str) {
+                    msgs.append('<div class="thread-msg user"><div class="msg-role">user</div>' + entry.query_str.replace(/</g,'&lt;') + '</div>');
+                 }
+                 var answer = "";
+                 if (entry.blocks) {
+                    // Try to find markdown block with answer
+                    var block = entry.blocks.find(function(b) {
+                        return b.intended_usage && b.intended_usage.startsWith("ask_text");
+                    });
+                    if (block && block.markdown_block) {
+                        answer = block.markdown_block.answer || block.markdown_block.text || "";
+                    }
+                    // Fallback to any block with answer
+                    if (!answer) {
+                       var anyBlock = entry.blocks.find(function(b) {
+                           return b.markdown_block && (b.markdown_block.answer || b.markdown_block.text);
+                       });
+                       if (anyBlock) answer = anyBlock.markdown_block.answer || anyBlock.markdown_block.text || "";
+                    }
+                 }
+                 if (!answer && entry.answer) {
+                     answer = (typeof entry.answer === 'object') ? (entry.answer.answer || JSON.stringify(entry.answer)) : entry.answer;
+                 }
+
+                 if (answer) {
+                     var htmlContent = "";
+                     try {
+                        htmlContent = marked.parse(answer);
+                     } catch(e) {
+                        htmlContent = answer.replace(/</g,'&lt;');
+                     }
+                     msgs.append('<div class="thread-msg assistant"><div class="msg-role">assistant</div>' + htmlContent + '</div>');
+                 }
+             });
+          } else if (nodes.length === 0 && data.text) {
+            var htmlContent = "";
+            try {
+               htmlContent = marked.parse(data.text);
+            } catch(e) {
+               htmlContent = data.text.replace(/</g,'&lt;');
+            }
+            msgs.append('<div class="thread-msg assistant"><div class="msg-role">assistant</div>' + htmlContent + '</div>');
+          } else {
+            nodes.forEach(function (n) {
+              var query = n.query || n.search_query || "";
+              var answer = (n.answer && typeof n.answer === 'object') ? (n.answer.answer || JSON.stringify(n.answer)) : (n.answer || n.text || "");
+              if (query) {
+                msgs.append('<div class="thread-msg user"><div class="msg-role">user</div>' + query.replace(/</g,'&lt;') + '</div>');
+              }
+              if (answer) {
+                var htmlContent = "";
+                try {
+                   htmlContent = marked.parse(answer);
+                } catch(e) {
+                   htmlContent = answer.replace(/</g,'&lt;');
+                }
+                msgs.append('<div class="thread-msg assistant"><div class="msg-role">assistant</div>' + htmlContent + '</div>');
+              }
+            });
+          }
+          if (msgs.children().length === 0) {
+            msgs.html('<div class="threads-loading">暂无对话内容</div>');
+          }
+        }).fail(function () {
+          $("#threadDetailMsgs").html('<div class="threads-loading" style="color:var(--error-color);">加载失败</div>');
+        });
+      }
+
+      /* --- Delete single thread --- */
+      function deleteThread(uuid) {
+        if (!confirm("确定要删除这个会话吗？")) return;
+        $.ajax({
+          url: "/api/threads/delete",
+          type: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({ uuids: [uuid] }),
+          success: function (data) {
+            if (data.results && Array.isArray(data.results)) {
+                var res = data.results.find(function(r) { return r.uuid === uuid; });
+                if (res && res.status === 'success') {
+                    $(".thread-item[data-uuid='" + uuid + "']").fadeOut(300, function () { $(this).remove(); updateBatchBar(); });
+                } else {
+                    alert("删除失败: " + (res ? res.error : "未知错误"));
+                }
+            } else {
+                $(".thread-item[data-uuid='" + uuid + "']").fadeOut(300, function () { $(this).remove(); updateBatchBar(); });
+            }
+          },
+          error: function (xhr) { alert("删除失败: " + xhr.responseText); }
+        });
+      }
+
+      /* --- Multi-select + batch delete --- */
+      function updateBatchBar() {
+        var count = $(".thread-select-cb:checked").length;
+        $("#threadSelectedCount").text("已选 " + count + " 项");
+        $("#threadBatchBar").toggle($(".thread-select-cb").length > 0);
+      }
+
+      $(document).on("change", ".thread-select-cb", function () {
+        updateBatchBar();
+        var total = $(".thread-select-cb").length;
+        var checked = $(".thread-select-cb:checked").length;
+        $("#threadSelectAll").prop("checked", total > 0 && checked === total);
+      });
+
+      $("#threadSelectAll").on("change", function () {
+        $(".thread-select-cb").prop("checked", $(this).is(":checked"));
+        updateBatchBar();
+      });
+
+      $("#deleteSelectedThreads").click(function () {
+        var uuids = [];
+        $(".thread-select-cb:checked").each(function () { uuids.push($(this).data("uuid")); });
+        if (uuids.length === 0) { alert("请先选择要删除的会话"); return; }
+        if (!confirm("确定要删除选中的 " + uuids.length + " 个会话吗？")) return;
+        $.ajax({
+          url: "/api/threads/delete",
+          type: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({ uuids: uuids }),
+          success: function (data) {
+            if (data.results && Array.isArray(data.results)) {
+                var successCount = 0;
+                data.results.forEach(function (res) {
+                    if (res.status === 'success') {
+                        $(".thread-item[data-uuid='" + res.uuid + "']").fadeOut(300, function () { $(this).remove(); });
+                        successCount++;
+                    }
+                });
+                if (successCount < uuids.length) {
+                    // Optional: alert user about partial failure
+                }
+            } else {
+                uuids.forEach(function (u) { $(".thread-item[data-uuid='" + u + "']").fadeOut(300, function () { $(this).remove(); }); });
+            }
+            setTimeout(updateBatchBar, 400);
+            $("#threadSelectAll").prop("checked", false);
+          },
+          error: function (xhr) { alert("批量删除失败: " + xhr.responseText); }
+        });
+      });
+
+      // Scroll pagination for threads
+      $(document).on("scroll", "#threadsContainer", function () {
+        var el = this;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+          loadThreads(false);
+        }
+      });
+      $("#threadsContainer").on("scroll", function () {
+        if (this.scrollTop + this.clientHeight >= this.scrollHeight - 40) {
+          loadThreads(false);
+        }
+      });
+      $("#refreshThreads").click(function () { loadThreads(true); });
+      $("#threadSearchBtn").click(function () {
+        threadSearchTerm = $("#threadSearchInput").val().trim();
+        loadThreads(true);
+      });
+      $("#threadSearchInput").on("keypress", function (e) {
+        if (e.which === 13) { $("#threadSearchBtn").click(); }
+      });
+    </script>
+  </body>
 </html>

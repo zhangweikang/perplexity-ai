@@ -1,0 +1,7 @@
+.github
+.playwright-mcp
+.pytest_cache
+.vscode
+*.log
+./perplexity_server/bridge_debug.log
+./perplexity_server/requests.log

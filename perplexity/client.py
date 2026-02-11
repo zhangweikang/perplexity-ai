@@ -20,6 +20,9 @@ from .config import (
     ENDPOINT_AUTH_SIGNIN,
     ENDPOINT_SSE_ASK,
     ENDPOINT_UPLOAD_URL,
+    ENDPOINT_THREAD_LIST,
+    ENDPOINT_THREAD_DETAIL,
+    ENDPOINT_THREAD_DELETE,
     MODEL_MAPPINGS,
 )
 from .emailnator import Emailnator
@@ -308,3 +311,86 @@ class Client:
 
             elif content.startswith("event: end_of_stream\r\n"):
                 return chunks[-1] if chunks else {}
+
+    def get_threads(self, limit=20, offset=0, search_term=""):
+        """
+        Fetches a list of threads from Perplexity AI.
+
+        Parameters:
+        - limit: Number of threads to fetch (default 20)
+        - offset: Offset for pagination (default 0)
+        - search_term: Search term to filter threads (default empty)
+        """
+        url = f"{ENDPOINT_THREAD_LIST}?version=2.18&source=default"
+        payload = {"limit": limit, "offset": offset, "search_term": search_term}
+        resp = self.session.post(url, json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_thread_details_by_slug(self, slug, query_params=None):
+        """
+        Fetches thread details using the provided slug from the new endpoint.
+
+        Parameters:
+        - slug: The thread slug (string)
+        - query_params: Optional dict of query parameters to override defaults
+        """
+        from urllib.parse import urlencode
+
+        default_params = {
+            "with_parent_info": "true",
+            "with_schematized_response": "true",
+            "version": "2.18",
+            "source": "default",
+            "limit": 100,
+            "offset": 0,
+            "from_first": "true",
+            "supported_block_use_cases": [
+                "answer_modes",
+                "media_items",
+                "knowledge_cards",
+                "inline_entity_cards",
+                "place_widgets",
+                "finance_widgets",
+                "sports_widgets",
+                "shopping_widgets",
+                "jobs_widgets",
+                "search_result_widgets",
+                "clarification_responses",
+                "inline_images",
+                "inline_assets",
+                "inline_finance_widgets",
+                "placeholder_cards",
+                "diff_blocks",
+                "inline_knowledge_cards",
+            ],
+        }
+        # Merge user params
+        params = dict(default_params)
+        if query_params:
+            for k, v in query_params.items():
+                params[k] = v
+        # Handle list params for supported_block_use_cases
+        query_items = []
+        for k, v in params.items():
+            if isinstance(v, list):
+                for item in v:
+                    query_items.append((k, item))
+            else:
+                query_items.append((k, v))
+        query_string = urlencode(query_items)
+        url = f"{ENDPOINT_THREAD_DETAIL}/{slug}?{query_string}"
+        resp = self.session.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def delete_threads(self, uuids: list):
+        """
+        Delete threads by their UUIDs. /
+        通过 UUID 列表删除对话。
+        """
+        url = f"{ENDPOINT_THREAD_DELETE}?version=2.18&source=default"
+        payload = {"uuids": uuids}
+        resp = self.session.post(url, json=payload)
+        resp.raise_for_status()
+        return resp.json()

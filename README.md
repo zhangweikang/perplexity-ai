@@ -290,11 +290,22 @@ python -m perplexity_server.server
 ```bash
 curl http://localhost:8046/v1/chat/completions \
   -H "Content-Type: application/json" \
+  -H "x-api-key: my-session-key-001" \
   -d '{
     "model": "gpt-4",
     "messages": [{"role": "user", "content": "你好，请介绍一下你自己"}]
   }'
 ```
+
+### 会话管理 (Session Management)
+
+服务器使用请求头中的 `x-api-key` 作为会话唯一标识，用于维持对话上下文（追问功能）。
+
+1. **绑定会话**: 在请求头中添加 `x-api-key` 参数（值可随机生成），首次请求后服务器会自动将本次会话的 `backend_uuid` 与该 Key 绑定。后续使用相同的 Key 即可保持上下文连续。
+2. **新建会话**: 如果需要开启一个全新的对话（不带上下文），只需更换一个新的 `x-api-key` 值即可。
+3. **第三方插件集成**: 如果使用 [Continue](https://continue.dev/)、[Cherry Studio](https://cherry-ai.com/) 等插件，只需将插件配置中的 **API Key** 设置为任意字符串，该值会作为 `x-api-key` 自动传递，实现会话绑定。
+
+> **注意**: 如果服务返回 `401` 错误并提示 "会话已失效,请重新设置会话信息"，说明 Perplexity 的 Cookie 已过期，需要在管理后台 (`http://localhost:8046/admin`) 重新设置 Cookie。
 
 ## 如何获取 Cookies
 

@@ -16,8 +16,11 @@ API_TIMEOUT = 30
 ENDPOINT_AUTH_SESSION = f"{API_BASE_URL}/api/auth/session"
 ENDPOINT_AUTH_SIGNIN = f"{API_BASE_URL}/api/auth/signin/email"
 ENDPOINT_SSE_ASK = f"{API_BASE_URL}/rest/sse/perplexity_ask"
-ENDPOINT_UPLOAD_URL = f"{API_BASE_URL}/rest/uploads/create_upload_url"
+ENDPOINT_UPLOAD_URL = f"{API_BASE_URL}/rest/uploads/batch_create_upload_urls"
 ENDPOINT_SOCKET_IO = f"{API_BASE_URL}/socket.io/"
+ENDPOINT_THREAD_LIST = f"{API_BASE_URL}/rest/thread/list_ask_threads"
+ENDPOINT_THREAD_DETAIL = f"{API_BASE_URL}/rest/thread"
+ENDPOINT_THREAD_DELETE = f"{API_BASE_URL}/rest/thread/delete_thread_by_entry_uuid"
 
 # Emailnator Configuration / Emailnator 配置
 EMAILNATOR_BASE_URL = "https://www.emailnator.com"
@@ -102,19 +105,20 @@ EMAILNATOR_HEADERS = {
     "origin": EMAILNATOR_BASE_URL,
     "priority": "u=1, i",
     "referer": f"{EMAILNATOR_BASE_URL}/",
-    "sec-ch-ua": '"Not;A=Brand";v="24", "Chromium";v="128"',
-    "sec-ch-ua-arch": '"x86"',
-    "sec-ch-ua-bitness": '"64"',
-    "sec-ch-ua-full-version": '"128.0.6613.120"',
-    "sec-ch-ua-full-version-list": '"Not;A=Brand";v="24.0.0.0", "Chromium";v="128.0.6613.120"',  # noqa: E501
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-model": '""',
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-ch-ua-platform-version": '"19.0.0"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",  # noqa: E501
+    'sec-ch-ua': '"Not(A:Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"',
+    'sec-ch-ua-arch': '"x86"',
+    'sec-ch-ua-bitness': '"64"',
+    'sec-ch-ua-full-version': '"144.0.7559.133"',
+    'sec-ch-ua-full-version-list': '"Not(A:Brand";v="8.0.0.0", "Chromium";v="144.0.7559.133", "Google Chrome";v="144.0.7559.133"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-model': '""',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-ch-ua-platform-version': '"19.0.0"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'same-origin',
+    'upgrade-insecure-requests': '1',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
     "x-requested-with": "XMLHttpRequest",
 }
 
