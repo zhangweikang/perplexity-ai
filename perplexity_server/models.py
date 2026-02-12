@@ -20,6 +20,8 @@ class OpenAIChatCompletionRequest(BaseModel):
     presence_penalty: Optional[float] = 0.0
     frequency_penalty: Optional[float] = 0.0
     user: Optional[str] = None
+    tools: Optional[List[Dict[str, Any]]] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
 
 # --- OpenAI Responses API Models / OpenAI Responses API 模型 ---
 
@@ -59,6 +61,8 @@ class ClaudeMessageRequest(BaseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     top_k: Optional[int] = None
+    tools: Optional[List[Dict[str, Any]]] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
 
 # --- Gemini (Google) Models / Gemini 模型 ---
 

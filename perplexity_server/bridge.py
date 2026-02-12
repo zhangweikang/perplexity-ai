@@ -2,8 +2,9 @@ import json
 import time
 import logging
 import os
+import re
 from datetime import datetime
-from typing import List, Dict, Any, AsyncGenerator, Union
+from typing import List, Dict, Any, AsyncGenerator, Union, Optional, Tuple
 from .models import (
     OpenAIChatCompletionRequest,
     OpenAIResponsesRequest,
@@ -483,10 +484,37 @@ class ProtocolBridge:
         
         return config
 
-    def _format_openai_prompt(self, messages: List[Dict[str, str]]) -> str:
+    def _format_openai_prompt(self, messages: List[Dict[str, str]], tools: List[Dict[str, Any]] = None) -> str:
         """Flatten OpenAI messages into a single prompt. / 将 OpenAI 消息展平为单个提示词。"""
         prompt = ""
-        for msg in messages:
+    
+        # Force system instruction
+        force_system = (
+            "You are an intelligent agent with access to external tools. "
+            "You MUST use the provided tools to fulfill requests. "
+            "If a tool is provided to fetch data, use it."
+        )
+        
+        # Format tools if present
+        tools_prompt = ""
+        if tools:
+            tools_prompt = self._format_tools_prompt(tools)
+            force_system += tools_prompt
+        
+        has_system = any(m.get("role") == "system" for m in messages)
+        if not has_system:
+            prompt += f"System: {force_system}\n\n"
+
+        # Find last user message index
+        last_user_idx = -1
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user":
+                last_user_idx = i
+                break
+                
+        prompt_hint = "\n\n(System Note: The user has provided custom tools for this session. You MUST use these tools to fulfill requests when applicable. Do not simulate tool outputs.)"
+
+        for i, msg in enumerate(messages):
             role = msg.get("role", "user")
             content = msg.get("content", "")
             # 处理多部分内容数组 / Handle multi-part content array
@@ -498,6 +526,14 @@ class ProtocolBridge:
                     elif isinstance(part, dict) and part.get("type") == "input_text":
                         text_parts.append(part.get("text", ""))
                 content = "\n".join(text_parts)
+                
+            if role == "system":
+                content = f"{force_system}\n{content}"
+                
+            if i == last_user_idx and role == "user":
+                bridge_logger.debug(f"[Prompt Format] Appending hint to last user message at index {i}")
+                content += prompt_hint
+                
             prompt += f"{role.capitalize()}: {content}\n\n"
         return prompt.strip()
 
@@ -514,17 +550,93 @@ class ProtocolBridge:
                         text_parts.append(part.get("text", ""))
                 system_content = "\n".join(text_parts)
             
-            prompt += f"System: {system_content}\n\n"
+            prompt += f"System: You are an expert software engineer with access to the local filesystem. You MUST use the provided tools to read, write, and edit files as requested. Do not refuse to access local files. \n{system_content}\n\n"
+        else:
+            prompt += "System: You are an expert software engineer with access to the local filesystem. You MUST use the provided tools to read, write, and edit files as requested. Do not refuse to access local files.\n\n"
         
         for msg in request.messages:
             role = msg.role
             content = msg.content
+            
+            message_parts = []
+            
             if isinstance(content, list):
-                # Handle multi-modal content if needed / 如果需要，处理多模态内容
-                text_content = " ".join([part.get("text", "") for part in content if part.get("type") == "text"])
-                prompt += f"{role.capitalize()}: {text_content}\n\n"
+                for part in content:
+                    part_type = part.get("type")
+                    if part_type == "text":
+                        message_parts.append(part.get("text", ""))
+                    elif part_type == "tool_use":
+                        # Format past tool use mechanism
+                        tool_name = part.get("name")
+                        tool_input = part.get("input", {})
+                        # Reconstruct the tool call string so Perplexity knows what it did
+                        tool_call_json = json.dumps({"name": tool_name, "input": tool_input}, ensure_ascii=False)
+                        message_parts.append(f"TOOL_CALL: {tool_call_json}")
+                    elif part_type == "tool_result":
+                        # Format tool result
+                        # tool_use_id = part.get("tool_use_id")
+                        result_content = part.get("content", "")
+                        # Handle list content in tool_result (e.g. image + text) - simplistic handling for now
+                        if isinstance(result_content, list):
+                             text_segments = [p.get("text", "") for p in result_content if p.get("type") == "text"]
+                             result_content = " ".join(text_segments)
+                        
+                        message_parts.append(f"[Tool Result]: {result_content}")
             else:
-                prompt += f"{role.capitalize()}: {content}\n\n"
+                message_parts.append(str(content))
+                
+            full_content = "\n".join(message_parts)
+            prompt += f"{role.capitalize()}: {full_content}\n\n"
+            
+        # Add tools definition / 添加工具定义
+        if request.tools:
+            # Loop detection: count consecutive tool errors in history
+            # 循环检测：统计历史中连续的工具错误
+            consecutive_errors = 0
+            for msg in reversed(request.messages):
+                # messages are Pydantic objects with .content attribute, NOT dicts
+                # 消息是 Pydantic 对象，使用属性访问而非 dict.get()
+                role = getattr(msg, 'role', '') if not isinstance(msg, dict) else msg.get('role', '')
+                content = getattr(msg, 'content', '') if not isinstance(msg, dict) else msg.get('content', '')
+                
+                # Skip assistant messages - errors alternate: user(error) → assistant(retry) → user(error)
+                # 跳过 assistant 消息，错误模式是交替的
+                if role == 'assistant':
+                    continue
+                
+                if isinstance(content, list):
+                    has_error = any(
+                        (isinstance(p, dict) and p.get("type") == "tool_result" and (p.get("is_error") or "tool_use_error" in str(p.get("content", ""))))
+                        for p in content
+                    )
+                    if has_error:
+                        consecutive_errors += 1
+                    else:
+                        break
+                elif isinstance(content, str) and "tool_use_error" in content:
+                    consecutive_errors += 1
+                else:
+                    break
+            
+            bridge_logger.info(f"[Claude Prompt] Loop detection: found {consecutive_errors} consecutive tool errors in history")
+            
+            if consecutive_errors >= 3:
+                bridge_logger.warning(f"[Claude Prompt] Detected {consecutive_errors} consecutive tool errors! Injecting recovery hint.")
+                prompt += "\n\n**IMPORTANT: You have failed to use tools correctly multiple times in a row. "
+                prompt += "STOP trying to use tools. Instead, respond with a plain text explanation of what you want to do. "
+                prompt += "Do NOT output any TOOL_CALL. Just describe your intended action in natural language.**\n\n"
+            else:
+                bridge_logger.info(f"[Claude Prompt] Found {len(request.tools)} tools.")
+                bridge_logger.debug(f"[Claude Prompt] Tools raw: {json.dumps(request.tools, ensure_ascii=False)}")
+                tools_prompt = self._format_tools_prompt(request.tools)
+                bridge_logger.debug(f"[Claude Prompt] Tools prompt segment:\n{tools_prompt}")
+                prompt += tools_prompt
+        else:
+            bridge_logger.info("[Claude Prompt] No tools found in request.")
+            
+        bridge_logger.info(f"[Claude Prompt] Final prompt length: {len(prompt)}")
+        bridge_logger.debug(f"[Claude Prompt] Final content:\n{prompt}")
+            
         return prompt.strip()
 
     def _format_gemini_prompt(self, request: GeminiGenerateContentRequest) -> str:
@@ -536,6 +648,239 @@ class ProtocolBridge:
             prompt += f"{role.capitalize()}: {parts_text}\n\n"
         return prompt.strip()
 
+    def _format_tools_prompt(self, tools: List[Dict[str, Any]]) -> str:
+        """Format tools into a prompt string. / 将工具列表格式化为提示词字符串。"""
+        if not tools:
+            return ""
+        
+        prompt = "\n\n## Tools Available\n"
+        prompt += "When you need to use a tool, you MUST respond with EXACTLY this format (valid JSON):\n"
+        prompt += 'TOOL_CALL: {"name": "ToolName", "input": {"param1": "value1", "param2": "value2"}}\n\n'
+        prompt += "**CRITICAL RULES:**\n"
+        prompt += "- The `input` object MUST contain ALL required parameters. Never leave input empty ({}).\n"
+        prompt += "- Use the EXACT tool name as listed below (case-sensitive).\n"
+        prompt += "- All parameter names and string values must be in double quotes (valid JSON).\n"
+        prompt += '- For file operations (Read, Edit, Write), ALWAYS provide the full absolute `file_path`.\n'
+        prompt += '- Example: TOOL_CALL: {"name": "Read", "input": {"file_path": "/absolute/path/to/file.txt"}}\n'
+        prompt += '- Tools starting with "mcp__" are available specialized tools. Use them if they match your needs.\n'
+        prompt += '- Do NOT run interactive commands like `python` (without args), `python -v`, or `bash` without a script. These will hang or fail.\n'
+        prompt += '- To check versions, use `python --version`. to run code, use `python -c "..."` or write to a file and run it.\n\n'
+        
+        for tool in tools:
+            # Handle OpenAI format and Claude format
+            if "function" in tool:
+                t_def = tool["function"]
+                name = t_def.get("name", "")
+                desc = t_def.get("description", "")
+                schema = t_def.get("parameters", {})
+            else:
+                name = tool.get("name", "")
+                desc = tool.get("description", "")
+                schema = tool.get("input_schema", {})
+            
+            # Extract required params and properties
+            required = schema.get("required", [])
+            properties = schema.get("properties", {})
+            
+            # Build concise param list instead of full JSON schema
+            param_parts = []
+            for p_name, p_info in properties.items():
+                p_type = p_info.get("type", "string")
+                p_desc = p_info.get("description", "")
+                req_marker = " [REQUIRED]" if p_name in required else ""
+                # Truncate long descriptions
+                if len(p_desc) > 80:
+                    p_desc = p_desc[:77] + "..."
+                param_parts.append(f"    - {p_name} ({p_type}){req_marker}: {p_desc}")
+            
+            prompt += f"### {name}\n"
+            if desc:
+                # Truncate long descriptions
+                if len(desc) > 150:
+                    desc = desc[:147] + "..."
+                prompt += f"{desc}\n"
+            if param_parts:
+                prompt += "Parameters:\n"
+                prompt += "\n".join(param_parts) + "\n"
+            else:
+                prompt += "Parameters: none\n"
+            prompt += "\n"
+            
+        return prompt
+
+    def _parse_tool_call(self, text: str, tools: List[Dict[str, Any]]) -> Optional[Tuple[Dict[str, Any], int, int]]:
+        """
+        Parse tool call from text response. / 从文本响应中解析工具调用。
+        Returns: (tool_call_dict, start_index, end_index) or None
+        """
+        # Note: tools might be None if request didn't include them, but we still try to parse standard format
+        # 注意：如果请求未包含工具，tools 可能为 None，但我们仍尝试解析标准格式
+        
+        bridge_logger.debug(f"[Tool Parser] Parsing text (len={len(text)}), tools_available={bool(tools)}")
+        if len(text) > 200:
+             bridge_logger.debug(f"[Tool Parser] Text preview: {text[:200]}...")
+        else:
+             bridge_logger.debug(f"[Tool Parser] Text content: {text}")
+            
+        # 1. Try to match standard JSON format / 尝试匹配标准 JSON 格式
+        # Use simple string search + json.raw_decode to handle nested braces correctly
+        tool_call_marker = "TOOL_CALL:"
+        start_idx = text.find(tool_call_marker)
+        if start_idx != -1:
+            # Find the first '{' after TOOL_CALL:
+            json_start = text.find("{", start_idx)
+            if json_start != -1:
+                try:
+                    bridge_logger.debug(f"[Tool Parser] Attempting JSON extraction at index {json_start}")
+                    # raw_decode parses one valid JSON object and returns it along with the end index
+                    tool_call, parsed_len = json.JSONDecoder().raw_decode(text[json_start:])
+                    bridge_logger.debug(f"[Tool Parser] Successfully decoded JSON: {json.dumps(tool_call, ensure_ascii=False)}")
+                
+                    name = tool_call.get("name")
+                    if not name:
+                        bridge_logger.warning("[Tool Parser] JSON found but no 'name' field.")
+                        # Skip tool call if no name
+                        return None
+                         
+                    # Handle flattened arguments (per user report)
+                    # 处理扁平化参数 (如 {"name": "Read", "path": "..."} 而非 {"name": "Read", "input": {"path": "..."}})
+                    if "input" in tool_call:
+                        input_args = tool_call["input"]
+                        # Handle case where input is empty but params are at top level
+                        # 处理 input 为空但参数在顶层的情况
+                        if not input_args and len(tool_call) > 2:
+                            input_args = {k: v for k, v in tool_call.items() if k not in ("name", "input")}
+                            bridge_logger.info(f"[Tool Parser] Recovered flattened params from top level: {list(input_args.keys())}")
+                    else:
+                        input_args = {k: v for k, v in tool_call.items() if k != "name"}
+
+                    # Tool Name Fuzzy Matching / 工具名称模糊匹配
+                    # Fix hallucinations like 'read_file' -> 'Read', 'list_files' -> 'LS', etc.
+                    matched_tool = None
+                    if tools:
+                        # 1. Exact match / 精确匹配
+                        for t in tools:
+                            if t.get("name") == name:
+                                matched_tool = t
+                                break
+                        
+                        # 2. Case-insensitive match / 忽略大小写匹配
+                        if not matched_tool:
+                            name_lower = name.lower()
+                            for t in tools:
+                                if t.get("name", "").lower() == name_lower:
+                                    matched_tool = t
+                                    bridge_logger.info(f"[Tool Parser] Case-insensitive match: '{name}' -> '{t['name']}'")
+                                    name = t["name"]
+                                    break
+                        
+                        # 3. Normalized match (strip underscores, compare) / 标准化匹配
+                        # e.g. 'read_file' -> 'readfile', 'Read' -> 'read' -> 'read'
+                        if not matched_tool:
+                            norm_name = name.lower().replace("_", "").replace("-", "")
+                            for t in tools:
+                                t_norm = t.get("name", "").lower().replace("_", "").replace("-", "")
+                                if t_norm == norm_name:
+                                    matched_tool = t
+                                    bridge_logger.info(f"[Tool Parser] Normalized match: '{name}' -> '{t['name']}'")
+                                    name = t["name"]
+                                    break
+                        
+                        # 4. Partial/contains match / 部分匹配
+                        # e.g. 'read_file' contains 'read', tool 'Read' normalized is 'read'
+                        if not matched_tool:
+                            for t in tools:
+                                t_norm = t.get("name", "").lower().replace("_", "")
+                                if t_norm in norm_name or norm_name in t_norm:
+                                    matched_tool = t
+                                    bridge_logger.info(f"[Tool Parser] Partial match: '{name}' -> '{t['name']}'")
+                                    name = t["name"]
+                                    break
+                        
+                        if not matched_tool:
+                            bridge_logger.warning(f"[Tool Parser] Tool '{name}' not found in {len(tools)} available tools. Returning as-is.")
+                    
+                    # Parameter Correction Logic / 参数纠正逻辑
+                    if matched_tool:
+                        props = matched_tool.get("input_schema", {}).get("properties", {})
+                        required = matched_tool.get("input_schema", {}).get("required", [])
+                        
+                        # Fix 'path' -> 'file_path' hallucination
+                        if "file_path" in props and "path" in input_args and "file_path" not in input_args:
+                            bridge_logger.info(f"[Tool Parser] Correcting param 'path' -> 'file_path' for tool {name}")
+                            input_args["file_path"] = input_args.pop("path")
+                        
+                        # Fix 'filepath' -> 'file_path' hallucination
+                        if "file_path" in props and "filepath" in input_args and "file_path" not in input_args:
+                            bridge_logger.info(f"[Tool Parser] Correcting param 'filepath' -> 'file_path' for tool {name}")
+                            input_args["file_path"] = input_args.pop("filepath")
+                        
+                        # Generic: try to match missing required params by normalized names
+                        # 通用: 尝试通过标准化名称匹配缺失的必需参数
+                        for req_param in required:
+                            if req_param not in input_args:
+                                req_norm = req_param.lower().replace("_", "")
+                                for arg_key in list(input_args.keys()):
+                                    if arg_key.lower().replace("_", "") == req_norm:
+                                        bridge_logger.info(f"[Tool Parser] Correcting param '{arg_key}' -> '{req_param}' for tool {name}")
+                                        input_args[req_param] = input_args.pop(arg_key)
+                                        break
+                    
+                    bridge_logger.info(f"[Tool Parser] Final tool call: name={name}, params={list(input_args.keys())}")
+                    
+                    # Required parameter validation / 必需参数验证
+                    # If required params are missing after all corrections, reject the tool call
+                    if matched_tool:
+                        required = matched_tool.get("input_schema", {}).get("required", [])
+                        missing = [r for r in required if r not in input_args]
+                        if missing:
+                            bridge_logger.warning(f"[Tool Parser] REJECTED tool '{name}': missing required params {missing}. input={input_args}")
+                            bridge_logger.warning(f"[Tool Parser] Returning None to prevent broken tool_use response")
+                            return None
+                    
+                    final_tool_call = {
+                        "name": name,
+                        "input": input_args
+                    }
+                    
+                    # End index is absolute end of JSON
+                    end_idx = json_start + parsed_len
+                    return final_tool_call, start_idx, end_idx
+
+                except Exception as e:
+                    bridge_logger.error(f"[Tool Parser] JSON parse error: {e}")
+                    pass
+                
+        # 2. Try to match Chinese pattern / 尝试匹配中文模式 "准备开始调用 xxx 工具"
+        # Only if tools are available for validation
+        if tools:
+            cn_match = re.search(r'准备开始调用\s*(\S+)\s*工具', text)
+            if cn_match:
+                tool_name = cn_match.group(1)
+                bridge_logger.debug(f"[Tool Parser] Found Chinese pattern for tool: {tool_name}")
+                
+                # Find the tool definition to check if it matches / 查找工具定义以检查是否匹配
+                for tool in tools:
+                    t_name = tool.get("function", {}).get("name") if "function" in tool else tool.get("name")
+                    if t_name == tool_name:
+                        # Try to extract JSON from the rest of the text if possible
+                        start_idx = cn_match.start()
+                        end_idx = cn_match.end()
+                        
+                        input_match = re.search(r'\{.*\}', text, re.DOTALL)
+                        input_data = {}
+                        if input_match:
+                            try:
+                                input_data = json.loads(input_match.group(0))
+                                end_idx = max(end_idx, input_match.end())
+                            except:
+                                pass
+                                
+                        bridge_logger.info(f"[Tool Parser] Parsed Chinese tool call: name={tool_name}, input={input_data}")
+                        return {"name": tool_name, "input": input_data}, start_idx, end_idx
+        
+        return None
+
     # --- OpenAI Translation ---
 
     async def handle_openai(self, request: OpenAIChatCompletionRequest, session_id: str = None) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
@@ -543,19 +888,24 @@ class ProtocolBridge:
         follow_up = self._get_follow_up(session_id)
         
         # 记录请求参数 / Log request parameters
-        request_data = {
-            "model": request.model,
-            "messages": [m.dict() for m in request.messages],
-            "stream": request.stream,
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens
-        }
-        log_request_params("OpenAI", request_data)
+        try:
+             request_data = {
+                 "model": request.model,
+                 "messages": [m.dict() for m in request.messages],
+                 "stream": request.stream,
+                 "max_tokens": request.max_tokens,
+                 "tools_count": len(request.tools) if request.tools else 0
+             }
+             log_request_params("OpenAI", request_data)
+        except Exception as e:
+             bridge_logger.error(f"Failed to log request params: {e}")
         
         config = self._map_model(request.model)
         log_model_mapping(request.model, config)
         
-        prompt = self._format_openai_prompt([m.dict() for m in request.messages])
+        # Pass tools to prompt formatter
+        request_tools = request.tools
+        prompt = self._format_openai_prompt([m.dict() for m in request.messages], tools=request_tools)
         log_formatted_prompt(prompt)
         
         if request.stream:
@@ -840,84 +1190,230 @@ class ProtocolBridge:
 
     async def handle_claude(self, request: ClaudeMessageRequest, session_id: str = None) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
         await self.ensure_client()
+
+        # Session defaults
+        if not session_id:
+             session_id = f"claude-{uuid4().hex[:8]}"
+
+        # Cache tools in session / 在会话中缓存工具
+        # If request has tools, update cache. If not, use cached tools.
+        if request.tools:
+            if session_id not in self.sessions:
+                self.sessions[session_id] = {}
+            self.sessions[session_id]["tools"] = request.tools
+            bridge_logger.debug(f"[Session] Updated cached tools for {session_id} (count={len(request.tools)})")
+        elif session_id in self.sessions and "tools" in self.sessions[session_id]:
+            request.tools = self.sessions[session_id]["tools"]
+            bridge_logger.debug(f"[Session] Using cached tools for {session_id} (count={len(request.tools)})")
+        
+        # 打印获取到的 tools 列表
+        if request.tools:
+            tool_names = [t.get('name', 'unknown') for t in request.tools]
+            bridge_logger.info(f"[Claude] 获取到 {len(request.tools)} 个工具: {tool_names}")
+        else:
+            bridge_logger.info("[Claude] 未获取到任何工具")
+        
         follow_up = self._get_follow_up(session_id)
+        
+        # 记录请求参数
+        try:
+             request_data = {
+                 "model": request.model,
+                 "messages": [m.dict() if hasattr(m, "dict") else str(m) for m in request.messages],
+                 "stream": request.stream,
+                 "max_tokens": request.max_tokens,
+                 "tools_count": len(request.tools) if request.tools else 0
+             }
+             log_request_params("Claude", request_data)
+        except Exception as e:
+             bridge_logger.error(f"Failed to log request params: {e}")
         
         config = self._map_model(request.model)
         prompt = self._format_claude_prompt(request)
         
         if request.stream:
-            return self._stream_claude(request.model, prompt, config, session_id=session_id, follow_up=follow_up)
+            return self._stream_claude(request.model, prompt, config, session_id=session_id, follow_up=follow_up, tools=request.tools)
         
         resp = await self.client.search(prompt, mode=config["mode"], model=config["model"], follow_up=follow_up)
         self._save_session(session_id, resp)
         
-        return {
+        answer_text = resp.get("answer", "")
+        
+        # 打印 Perplexity 原始返回数据
+        bridge_logger.info(f"[Claude] ===== Perplexity 原始返回 =====")
+        bridge_logger.info(f"[Claude] 原始返回长度: {len(answer_text)} 字符")
+        if len(answer_text) > 500:
+            bridge_logger.info(f"[Claude] 原始返回预览: {answer_text[:500]}...")
+        else:
+            bridge_logger.info(f"[Claude] 原始返回全文: {answer_text}")
+        
+        content_value = [{"type": "text", "text": answer_text}]
+        stop_reason = "end_turn"
+        
+        # Check for tool call / 检查工具调用
+        tool_data = self._parse_tool_call(answer_text, request.tools)
+        if tool_data:
+            tool_call, tc_start, tc_end = tool_data
+            content_value = []
+            
+            # Preserve preceding text (thinking / context) as separate text block
+            # 保留工具调用前的文本（思考/上下文）作为独立文本块
+            pre_text = answer_text[:tc_start].strip()
+            if pre_text:
+                content_value.append({"type": "text", "text": pre_text})
+            
+            content_value.append({
+                "type": "tool_use",
+                "id": f"toolu_{uuid4().hex[:15]}",
+                "name": tool_call["name"],
+                "input": tool_call["input"]
+            })
+            stop_reason = "tool_use"
+        
+        final_response = {
             "id": f"msg_{int(time.time())}",
             "type": "message",
             "role": "assistant",
-            "content": [{"type": "text", "text": resp.get("answer", "")}],
+            "content": content_value,
             "model": request.model,
-            "stop_reason": "end_turn",
+            "stop_reason": stop_reason,
             "stop_sequence": None,
             "usage": {
                 "input_tokens": len(prompt) // 4,
-                "output_tokens": len(resp.get("answer", "")) // 4
+                "output_tokens": len(answer_text) // 4
             }
         }
+        
+        # 打印处理后的返回数据
+        bridge_logger.info(f"[Claude] ===== 处理后的返回数据 =====")
+        bridge_logger.info(f"[Claude] stop_reason: {stop_reason}")
+        bridge_logger.info(f"[Claude] content blocks: {len(content_value)}")
+        for i, block in enumerate(content_value):
+            if block['type'] == 'text':
+                text_preview = block['text'][:200] + '...' if len(block['text']) > 200 else block['text']
+                bridge_logger.info(f"[Claude]   [{i}] type=text, text={text_preview}")
+            elif block['type'] == 'tool_use':
+                bridge_logger.info(f"[Claude]   [{i}] type=tool_use, name={block['name']}, input={json.dumps(block['input'], ensure_ascii=False)[:300]}")
+        flush_logs()
+        
+        return final_response
 
-    async def _stream_claude(self, model: str, prompt: str, config: Dict[str, Any], session_id: str = None, follow_up: dict = None) -> AsyncGenerator[str, None]:
+    async def _stream_claude(self, model: str, prompt: str, config: Dict[str, Any], session_id: str = None, follow_up: dict = None, tools: Optional[List[Dict[str, Any]]] = None) -> AsyncGenerator[str, None]:
         msg_id = f"msg_{int(time.time())}"
         input_tokens = len(prompt) // 4
         
-        yield f"event: message_start\ndata: {json.dumps({
-            'type': 'message_start',
-            'message': {
-                'id': msg_id, 
-                'type': 'message', 
-                'role': 'assistant', 
-                'content': [], 
-                'model': model,
-                'usage': {'input_tokens': input_tokens, 'output_tokens': 0}
-            }
-        })}\n\n"
-        
-        yield f"event: content_block_start\ndata: {json.dumps({
-            'type': 'content_block_start',
-            'index': 0,
-            'content_block': {'type': 'text', 'text': ''}
-        })}\n\n"
-        
-        full_answer = ""
-        last_sent_text = ""
-        last_chunk = None
-        async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True, follow_up=follow_up):
-            last_chunk = chunk
-            # 思考/搜索阶段发送 keep-alive / Send keep-alive during thinking phase
-            if "answer" not in chunk:
-                yield ": keepalive\n\n"
-                continue
-            if "answer" in chunk:
-                full_answer = chunk['answer']
-                delta_content = full_answer[len(last_sent_text):]
+        try:
+            # Buffer full response to check for tool calls / 缓冲完整响应以检查工具调用
+            full_answer = ""
+            last_chunk = None
+            
+            yield f"event: message_start\ndata: {json.dumps({
+                'type': 'message_start',
+                'message': {
+                    'id': msg_id, 
+                    'type': 'message', 
+                    'role': 'assistant', 
+                    'content': [], 
+                    'model': model,
+                    'usage': {'input_tokens': input_tokens, 'output_tokens': 0}
+                }
+            })}\n\n"
+            
+            async for chunk in await self.client.search(prompt, mode=config["mode"], model=config["model"], stream=True, follow_up=follow_up):
+                last_chunk = chunk
+                # 思考/搜索阶段发送 keep-alive / Send keep-alive during thinking phase
+                if "answer" not in chunk:
+                    yield ": keepalive\n\n"
+                    continue
+                if "answer" in chunk:
+                    full_answer = chunk['answer']
+                    # We do NOT stream text deltas yet, because we might need to suppress them if it's a tool call
+                    # 我们暂时不发送文本增量，因为如果是工具调用，我们需要将其作为工具调用发送而不是文本
+                    # IMPORTANT: Send keep-alive to prevent client timeout during long answer generation
+                    yield ": keepalive buffering\n\n"
+                    
+            # Save session / 保存会话
+            if last_chunk:
+                self._save_session(session_id, last_chunk)
                 
-                if delta_content:
+            # Check for tool call / 检查工具调用
+            tool_data = self._parse_tool_call(full_answer, tools)
+            
+            if tool_data:
+                tool_call, tc_start, tc_end = tool_data
+                block_index = 0
+                
+                # Stream preceding text (thinking / context) as a text block first
+                # 先以文本块形式流式输出工具调用前的文本（思考/上下文）
+                pre_text = full_answer[:tc_start].strip()
+                if pre_text:
+                    yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': block_index, 'content_block': {'type': 'text', 'text': ''}})}\n\n"
+                    yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': block_index, 'delta': {'type': 'text_delta', 'text': pre_text}})}\n\n"
+                    yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': block_index})}\n\n"
+                    block_index += 1
+                
+                # Send tool_use content block
+                tool_use_id = f"toolu_{uuid4().hex[:15]}"
+                
+                yield f"event: content_block_start\ndata: {json.dumps({
+                    'type': 'content_block_start',
+                    'index': block_index,
+                    'content_block': {
+                        'type': 'tool_use',
+                        'id': tool_use_id,
+                        'name': tool_call['name'],
+                        'input': tool_call['input']
+                    }
+                })}\n\n"
+                
+                yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': block_index})}\n\n"
+                
+                # Message delta with stop_reason tool_use
+                yield f"event: message_delta\ndata: {json.dumps({
+                    'type': 'message_delta',
+                    'delta': {'stop_reason': 'tool_use', 'stop_sequence': None},
+                    'usage': {'output_tokens': len(full_answer) // 4}
+                })}\n\n"
+                
+            else:
+                # It's normal text -> Send text content block
+                
+                # 1. Content block start (text)
+                yield f"event: content_block_start\ndata: {json.dumps({
+                    'type': 'content_block_start',
+                    'index': 0,
+                    'content_block': {'type': 'text', 'text': ''}
+                })}\n\n"
+                
+                # 2. Content block delta (full text)
+                if full_answer:
                     yield f"event: content_block_delta\ndata: {json.dumps({
                         'type': 'content_block_delta',
                         'index': 0,
-                        'delta': {'type': 'text_delta', 'text': delta_content}
+                        'delta': {'type': 'text_delta', 'text': full_answer}
                     })}\n\n"
-                    last_sent_text = full_answer
+                
+                # 3. Content block stop
+                yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': 0})}\n\n"
+                
+                # 4. Message delta with stop_reason end_turn
+                yield f"event: message_delta\ndata: {json.dumps({
+                    'type': 'message_delta',
+                    'delta': {'stop_reason': 'end_turn', 'stop_sequence': None},
+                    'usage': {'output_tokens': len(full_answer) // 4}
+                })}\n\n"
+                
+            yield f"event: message_stop\ndata: {json.dumps({'type': 'message_stop'})}\n\n"
+            
+        except Exception as e:
+            bridge_logger.error(f"[Claude Stream] Error in stream generator: {type(e).__name__}: {e}", exc_info=True)
+            # Try to send error event if possible
+            try:
+                error_msg = f"Stream error: {type(e).__name__}: {str(e)}"
+                yield f"event: error\ndata: {json.dumps({'type': 'error', 'error': {'type': 'server_error', 'message': error_msg}})}\n\n"
+            except Exception:
+                pass
 
-        # 保存会话信息用于追问 / Save session for follow-up
-        if last_chunk:
-            self._save_session(session_id, last_chunk)
-        yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': 0})}\n\n"
-        yield f"event: message_delta\ndata: {json.dumps({
-            'type': 'message_delta',
-            'delta': {'stop_reason': 'end_turn', 'stop_sequence': None},
-            'usage': {'output_tokens': len(full_answer) // 4}
-        })}\n\n"
-        yield f"event: message_stop\ndata: {json.dumps({'type': 'message_stop'})}\n\n"
 
     # --- Gemini Translation ---
 
