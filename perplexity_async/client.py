@@ -206,13 +206,13 @@ class Client(AsyncMixin):
             "query_str": query,
             "params": {
                 "attachments": (
-                    uploaded_files + follow_up["attachments"] if follow_up else uploaded_files
+                    uploaded_files + follow_up.get("attachments", []) if follow_up else uploaded_files
                 ),
                 "frontend_context_uuid": str(uuid4()),
                 "frontend_uuid": str(uuid4()),
                 "is_incognito": incognito,
                 "language": language,
-                "last_backend_uuid": (follow_up["backend_uuid"] if follow_up else None),
+                "last_backend_uuid": (follow_up.get("backend_uuid") if follow_up else None),
                 "mode": "concise" if mode == "auto" else "copilot",
                 "model_preference": MODEL_MAPPINGS[mode][model],
                 "source": "default",

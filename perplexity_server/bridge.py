@@ -1199,7 +1199,7 @@ class ProtocolBridge:
         # If request has tools, update cache. If not, use cached tools.
         if request.tools:
             if session_id not in self.sessions:
-                self.sessions[session_id] = {}
+                self.sessions[session_id] = {"attachments": []}
             self.sessions[session_id]["tools"] = request.tools
             bridge_logger.debug(f"[Session] Updated cached tools for {session_id} (count={len(request.tools)})")
         elif session_id in self.sessions and "tools" in self.sessions[session_id]:
