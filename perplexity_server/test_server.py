@@ -16,7 +16,7 @@ def test_openai():
 def test_claude():
     print("\nTesting Claude endpoint...")
     payload = {
-        "model": "claude-4.5-sonnet-thinking",
+        "model": "claude-4.6-sonnet-thinking",
         "messages": [{"role": "user", "content": "How's the weather?"}],
         "max_tokens": 100
     }

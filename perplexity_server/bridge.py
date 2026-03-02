@@ -134,12 +134,12 @@ class ProtocolBridge:
 
     # 默认模型别名 / Default model aliases
     DEFAULT_MODEL_ALIASES = {
-        "gemini-3": "gemini-3.0-pro",
-        "gemini-3-flash": "gemini-3.0-flash",
+        "gemini-3": "gemini-3.1-pro",
+        "gemini-3-flash": "gemini-3.1-flash",
         "gpt-5": "gpt-5.2-thinking",
         "gpt-4": "gpt-5.2",
-        "claude-4": "claude-4.5-sonnet-thinking",
-        "claude-3": "claude-4.5-sonnet",
+        "claude-4": "claude-4.6-sonnet-thinking",
+        "claude-3": "claude-4.6-sonnet",
         "grok-4": "grok-4.1",
         "kimi-k2": "kimi-k2.5",
     }
@@ -459,9 +459,9 @@ class ProtocolBridge:
             config["model"] = "claude-4.6-opus"
         elif "claude" in model_name:
             if "thinking" in model_name:
-                config["model"] = "claude-4.5-sonnet-thinking"
+                config["model"] = "claude-4.6-sonnet-thinking"
             else:
-                config["model"] = "claude-4.5-sonnet-thinking"
+                config["model"] = "claude-4.6-sonnet-thinking"
             config["mode"] = "reasoning"
         # Gemini 系列 / Gemini series
         elif "gemini-3.0-flash" in model_name or "gemini-3-flash" in model_name:
@@ -472,7 +472,7 @@ class ProtocolBridge:
                 config["model"] = "gemini-3.0-flash-thinking"
         elif "gemini" in model_name:
             config["mode"] = "reasoning"
-            config["model"] = "gemini-3.0-pro"
+            config["model"] = "gemini-3.1-pro"
         # Grok 系列 / Grok series
         elif "grok" in model_name:
             config["mode"] = "reasoning"
